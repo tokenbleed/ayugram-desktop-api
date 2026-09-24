@@ -12,6 +12,8 @@ nice_target_sources(td_download_api ${src_loc}
 PRIVATE
     download_api/download_api.cpp
     download_api/download_api.h
+    download_api/download_api_fast.cpp
+    download_api/download_api_fast.h
     download_api/download_api_http.cpp
     download_api/download_api_http.h
     download_api/download_api_job.cpp

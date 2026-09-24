@@ -452,6 +452,30 @@ void ControllerObject::fillProgressState(const DownloadProgress &progress) {
 	state.bytesLoaded = progress.ready;
 	state.bytesTotal = progress.total;
 	state.bytesRandomId = progress.randomId;
+	if (progress.randomId && progress.total > 0) {
+		const auto i = _loadedByFile.find(progress.randomId);
+		if (i == end(_loadedByFile)) {
+			_loadedByFile.emplace(
+				progress.randomId,
+				progress.ready);
+			state.bytesLoadedTotal += progress.ready;
+			state.bytesTotalAll += progress.total;
+		} else {
+			const auto delta = progress.ready - i->second;
+			if (delta > 0) {
+				state.bytesLoadedTotal += delta;
+			}
+			i->second = progress.ready;
+		}
+		if (progress.ready >= progress.total
+			&& !_finishedFiles.contains(progress.randomId)) {
+			_finishedFiles.insert(progress.randomId);
+			++state.filesFinished;
+		}
+		state.filesTotal = std::max(
+			state.filesTotal,
+			int(_loadedByFile.size()));
+	}
 	setState(std::move(state));
 }
 

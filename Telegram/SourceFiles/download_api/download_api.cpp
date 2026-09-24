@@ -119,6 +119,23 @@ bool ParseOptions(
 		error = u"Invalid 'format'"_q;
 		return false;
 	}
+	options.engine = object.field(u"engine"_q).stringValue();
+	if (options.engine != u"direct"_q
+		&& options.engine != u"takeout"_q
+		&& !options.engine.isEmpty()) {
+		error = u"Invalid 'engine'"_q;
+		return false;
+	}
+	if (options.engine.isEmpty()
+		|| options.engine == u"direct"_q) {
+		options.engine = u"direct"_q;
+	}
+	if (options.engine == u"direct"_q
+		&& options.format != u"media"_q
+		&& !options.format.isEmpty()) {
+		error = u"Direct engine supports only 'format': 'media'"_q;
+		return false;
+	}
 	const auto chats = object.field(u"chats"_q).stringValue();
 	options.chatSelector = chats.isEmpty() ? u"all"_q : chats;
 	options.peer = object.field(u"peer"_q).stringValue();
@@ -137,6 +154,16 @@ bool ParseOptions(
 	}
 	if (options.topicRootId > 0 && !options.peerId) {
 		error = u"'topic_root_id' requires 'peer_id'"_q;
+		return false;
+	}
+	if (object.hasField(u"parallel"_q)) {
+		options.parallel = std::clamp(
+			int(object.field(u"parallel"_q).numberValue()),
+			1,
+			8);
+	}
+	if (options.engine == u"direct"_q && !options.peerId) {
+		error = u"Direct engine requires 'peer_id'"_q;
 		return false;
 	}
 	const auto media = object.field(u"media"_q);
@@ -196,6 +223,7 @@ bool ParseOptions(
 JsonValue JobOptionsJson(const JobOptions &options) {
 	return Json::Object({
 		{ u"mode"_q, Json::String(ModeName(options.mode)) },
+		{ u"engine"_q, Json::String(options.engine) },
 		{ u"dest"_q, Json::String(options.dest) },
 		{ u"format"_q, Json::String(options.format) },
 		{ u"chats"_q, Json::String(options.chatSelector) },
@@ -203,6 +231,7 @@ JsonValue JobOptionsJson(const JobOptions &options) {
 		{ u"peer_id"_q, Json::Number(qint64(options.peerId)) },
 		{ u"topic_root_id"_q, Json::Number(qint64(options.topicRootId)) },
 		{ u"limit"_q, Json::Number(qint64(options.chatLimit)) },
+		{ u"parallel"_q, Json::Number(qint64(options.parallel)) },
 		{ u"size_limit"_q, Json::Number(options.sizeLimit) },
 		{ u"since"_q, Json::Number(qint64(options.from)) },
 		{ u"until"_q, Json::Number(qint64(options.till)) },
@@ -432,6 +461,8 @@ void Manager::handleCancel(quint64 id, const QString &jobId) {
 	}
 	if (job->controller) {
 		job->controller->cancel();
+	} else if (job->fastController) {
+		job->fastController->cancel();
 	} else if (job->state.status == JobState::Status::Pending) {
 		auto state = JobState();
 		state.status = JobState::Status::Cancelled;
@@ -517,7 +548,7 @@ void Manager::maybeStartNext() {
 		return;
 	}
 	for (const auto &job : _jobs) {
-		if (job->controller) {
+		if (job->controller || job->fastController) {
 			return;
 		}
 	}
@@ -525,23 +556,38 @@ void Manager::maybeStartNext() {
 		if (candidate->state.status != JobState::Status::Pending) {
 			continue;
 		}
-		candidate->controller = std::make_unique<Controller>(
-			&_session->mtp());
 		const auto job = candidate.get();
-		job->controller->start(
-			JobOptions(job->options),
-			PrepareEnvironment(_session));
-		job->controller->state(
-		) | rpl::on_next([=](JobState &&state) {
-			job->state = state;
-			if (state.status == JobState::Status::Finished
-				|| state.status == JobState::Status::Cancelled
-				|| state.status == JobState::Status::Error) {
-				job->controller = nullptr;
-				maybeStartNext();
-			}
-		}, job->lifetime);
+		if (job->options.engine == u"direct"_q) {
+			job->fastController = std::make_unique<FastController>(
+				&_session->mtp());
+			job->fastController->start(JobOptions(job->options));
+			job->fastController->state(
+			) | rpl::on_next([=](JobState &&state) {
+				handleJobState(job, std::move(state));
+			}, job->lifetime);
+		} else {
+			job->controller = std::make_unique<Controller>(
+				&_session->mtp());
+			job->controller->start(
+				JobOptions(job->options),
+				PrepareEnvironment(_session));
+			job->controller->state(
+			) | rpl::on_next([=](JobState &&state) {
+				handleJobState(job, std::move(state));
+			}, job->lifetime);
+		}
 		return;
+	}
+}
+
+void Manager::handleJobState(Manager::Job *job, JobState &&state) {
+	job->state = state;
+	if (state.status == JobState::Status::Finished
+		|| state.status == JobState::Status::Cancelled
+		|| state.status == JobState::Status::Error) {
+		job->controller = nullptr;
+		job->fastController = nullptr;
+		maybeStartNext();
 	}
 }
 
@@ -549,6 +595,8 @@ void Manager::cancelAll(const QString &reason) {
 	for (const auto &job : _jobs) {
 		if (job->controller) {
 			job->controller->cancel();
+		} else if (job->fastController) {
+			job->fastController->cancel();
 		} else if (job->state.status == JobState::Status::Pending) {
 			auto state = JobState();
 			state.status = JobState::Status::Error;
@@ -562,6 +610,9 @@ JsonValue Manager::writeJobJson(const Job &job) const {
 	auto fields = JsonFields();
 	fields.push_back({ u"id"_q, Json::Number(qint64(job.id)) });
 	fields.push_back({ u"status"_q, Json::String(StatusName(job.state.status)) });
+	if (!job.state.debug.isEmpty()) {
+		fields.push_back({ u"debug"_q, Json::String(job.state.debug) });
+	}
 	fields.push_back({ u"created_at"_q, Json::Number(qint64(job.createdAt)) });
 	fields.push_back({ u"options"_q, JobOptionsJson(job.options) });
 	fields.push_back({ u"error"_q, Json::String(job.state.error) });
@@ -578,6 +629,21 @@ JsonValue Manager::writeJobJson(const Job &job) const {
 		{ u"message_count"_q, Json::Number(qint64(job.state.itemCount)) },
 		{ u"bytes_loaded"_q, Json::Number(job.state.bytesLoaded) },
 		{ u"bytes_total"_q, Json::Number(job.state.bytesTotal) },
+		{ u"bytes_loaded_total"_q,
+			Json::Number(job.state.bytesLoadedTotal) },
+		{ u"bytes_total_all"_q,
+			Json::Number(job.state.bytesTotalAll) },
+		{ u"files_finished"_q,
+			Json::Number(qint64(job.state.filesFinished)) },
+		{ u"files_total"_q, Json::Number(qint64(job.state.filesTotal)) },
+		{ u"files_skipped"_q,
+			Json::Number(qint64(job.state.skippedFiles)) },
+		{ u"bytes_per_second"_q,
+			Json::Number(job.state.bytesPerSecond) },
+		{ u"files_per_second"_q,
+			Json::Number(job.state.filesPerSecond) },
+		{ u"eta_seconds"_q,
+			Json::Number(qint64(job.state.etaSeconds)) },
 		{ u"bytes_random_id"_q,
 			Json::String(QString::number(job.state.bytesRandomId)) },
 	}) });

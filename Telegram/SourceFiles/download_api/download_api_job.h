@@ -8,12 +8,16 @@ https://github.com/AyuGram/AyuGramDesktop/blob/master/LEGAL
 #pragma once
 
 #include "base/basic_types.h"
+#include "base/flat_map.h"
+#include "base/flat_set.h"
 #include "base/timer.h"
 #include "base/weak_ptr.h"
 
 #include <rpl/rpl.h>
 
 #include "base/unixtime.h"
+
+#include "scheme.h"
 
 #include "data/data_peer_id.h"
 
@@ -45,11 +49,13 @@ struct JobOptions {
 	Mode mode = Mode::Download;
 	QString dest;
 	QString format;
+	QString engine;
 	QString chatSelector;
 	QString peer;
 	uint64 peerId = 0;
 	int32 topicRootId = 0;
 	int chatLimit = 0;
+	int parallel = 3;
 	Export::MediaSettings::Types mediaTypes = Export::MediaSettings::Type::AllMask;
 	int64 sizeLimit = 0;
 	TimeId from = 0;
@@ -83,6 +89,16 @@ struct JobState {
 	int itemCount = 0;
 	int64 bytesLoaded = 0;
 	int64 bytesTotal = 0;
+	int64 bytesLoadedTotal = 0;
+	int64 bytesTotalAll = 0;
+	int filesFinished = 0;
+	int filesTotal = 0;
+	int skippedFiles = 0;
+	double bytesPerSecond = 0;
+	double filesPerSecond = 0;
+	int32 etaSeconds = 0;
+	int64 startedAt = 0;
+	QString debug;
 	uint64 bytesRandomId = 0;
 	std::vector<ListedChat> chats;
 	QStringList candidates;
@@ -156,6 +172,8 @@ private:
 	JobState _state;
 	rpl::event_stream<JobState> _stateChanges;
 	rpl::lifetime _lifetime;
+	base::flat_map<uint64, int64> _loadedByFile;
+	base::flat_set<uint64> _finishedFiles;
 
 };
 

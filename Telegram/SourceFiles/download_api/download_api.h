@@ -10,6 +10,7 @@ https://github.com/AyuGram/AyuGramDesktop/blob/master/LEGAL
 #include "base/basic_types.h"
 #include "base/unixtime.h"
 
+#include "download_api/download_api_fast.h"
 #include "download_api/download_api_http.h"
 #include "download_api/download_api_job.h"
 #include "download_api/download_api_json.h"
@@ -38,6 +39,7 @@ private:
 		TimeId createdAt = 0;
 		JobState state;
 		std::unique_ptr<Controller> controller;
+		std::unique_ptr<FastController> fastController;
 		rpl::lifetime lifetime;
 
 	};
@@ -58,6 +60,7 @@ private:
 
 	Job *jobById(const QString &jobId) const;
 	void maybeStartNext();
+	void handleJobState(Job *job, JobState &&state);
 	void cancelAll(const QString &reason);
 
 	[[nodiscard]] JsonValue writeJobJson(const Job &job) const;
