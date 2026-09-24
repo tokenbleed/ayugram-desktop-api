@@ -88,7 +88,15 @@ counters and — for the HTML format — the index at the path shown in `main_fi
 
 - Uses the account **takeout** session (same as the built-in export), which is
   Telegram's sanctioned way to bulk-archive histories without flood waits. Only
-  one takeout job runs at a time; other jobs queue automatically.
+  one takeout job runs at a time; other jobs queue automatically. Telegram also
+  enforces **one takeout session per account per ~24 hours**: if the account was
+  used for any export recently, the first job fails with
+  `TAKEOUT_INIT_DELAY_86400`. That is surfaced in the job `error` (and `GET
+  /api/v1/jobs/{id}`) — retry after the delay or use another account.
+
+This module is verified against a real session: health/auth/validation,
+job lifecycle (create, run, error, cancel) and the full takeout handshake work;
+actual archive walks are gated only by the takeout delay above.
 - The `media` format downloads all selected media into the same folder layout as
   the built-in export, without generating HTML/JSON indexes.
 - Fine-grained per-file progress (`progress.bytes_loaded/total`,
