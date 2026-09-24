@@ -68,13 +68,14 @@ private:
 		int _contentLength = 0;
 		bool _dispatched = false;
 		bool _handled = false;
+		bool _finished = false;
 
 	};
 
 	void newConnection();
 
 	QTcpServer _tcp;
-	std::map<quint64, std::unique_ptr<Connection>> _connections;
+	std::map<quint64, Connection*> _connections;
 	quint64 _nextId = 0;
 	Fn<void(quint64, HttpRequest&&)> _handler;
 	Fn<void(quint64, int, QByteArray)> _responder;

@@ -75,8 +75,14 @@ void HttpServer::newConnection() {
 		if (!socket) {
 			return;
 		}
-		auto connection = std::make_unique<Connection>(this, socket, ++_nextId);
-		_connections.emplace(connection->id(), std::move(connection));
+		const auto id = ++_nextId;
+		const auto connection = new Connection(this, socket, id);
+		connect(
+			connection,
+			&QObject::destroyed,
+			this,
+			[=] { _connections.erase(id); });
+		_connections.emplace(id, connection);
 	}
 }
 
@@ -100,6 +106,7 @@ HttpServer::Connection::Connection(
 , _server(server)
 , _socket(socket)
 , _id(id) {
+	socket->setParent(this);
 	connect(socket, &QTcpSocket::readyRead, this, &Connection::readyRead);
 	connect(socket, &QTcpSocket::disconnected, this, &Connection::disconnected);
 }
@@ -117,9 +124,10 @@ void HttpServer::Connection::readyRead() {
 }
 
 void HttpServer::Connection::disconnected() {
-	_handled = true;
-	_socket->deleteLater();
-	_server->_connections.erase(_id);
+	if (_finished) {
+		return;
+	}
+	_finished = true;
 	deleteLater();
 }
 
@@ -215,7 +223,6 @@ void HttpServer::Connection::respond(int status, QByteArray body) {
 	_socket->write(body);
 	_socket->flush();
 	_socket->disconnectFromHost();
-	disconnected();
 }
 
 } // namespace DownloadApi
