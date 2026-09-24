@@ -125,6 +125,20 @@ Flatpak: https://github.com/0FL01/AyuGramDesktop-flatpak
 
 Or follow the [official guide](https://github.com/AyuGram/AyuGramDesktop/blob/dev/docs/building-linux.md).
 
+## Built-in download API
+
+This fork adds an opt-in loopback HTTP/JSON API for fast, resumable,
+programmatic bulk archive downloads of supergroups and other chats, reusing
+AyuGram's native MTProto engine (no Telethon / TDLib needed).
+
+```bash
+AyuGram -api-port=48123 -api-token=mysecret
+curl -H "X-Api-Token: mysecret" http://127.0.0.1:48123/api/v1/health
+```
+
+See [docs/bulk-download-api.md](docs/bulk-download-api.md) for the full API
+reference and [scripts/bulk_dl.py](scripts/bulk_dl.py) for a ready-made client.
+
 ## Donation
 
 Enjoy using **AyuGram**? Consider sending us a tip!

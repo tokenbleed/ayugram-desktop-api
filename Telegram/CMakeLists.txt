@@ -35,6 +35,7 @@ include(cmake/lib_tgcalls.cmake)
 include(cmake/lib_prisma.cmake)
 include(cmake/lib_fido2.cmake)
 include(cmake/td_export.cmake)
+include(cmake/td_download_api.cmake)
 include(cmake/td_iv.cmake)
 include(cmake/td_lang.cmake)
 include(cmake/td_mtproto.cmake)
@@ -64,6 +65,7 @@ PRIVATE
     tdesktop::lib_fido2
     tdesktop::lib_tgcalls
     tdesktop::td_export
+    tdesktop::td_download_api
     tdesktop::td_iv
     tdesktop::td_lang
     tdesktop::td_mtproto

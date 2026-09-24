@@ -83,6 +83,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/localstorage.h"
 #include "payments/payments_checkout_process.h"
 #include "export/export_manager.h"
+#include "download_api/download_api.h"
 #include "webrtc/webrtc_environment.h"
 #include "window/window_separate_id.h"
 #include "window/window_session_controller.h"
@@ -172,6 +173,7 @@ Application::Application()
 	std::make_unique<MTP::Config>(MTP::Environment::Production))
 , _downloadManager(std::make_unique<Data::DownloadManager>())
 , _domain(std::make_unique<Main::Domain>(cDataFile()))
+, _downloadApi(std::make_unique<DownloadApi::Manager>(_domain))
 , _exportManager(std::make_unique<Export::Manager>())
 , _calls(std::make_unique<Calls::Instance>())
 , _iv(std::make_unique<Iv::Instance>(
@@ -212,6 +214,8 @@ Application::Application()
 			UpdateChecker().setMtproto(session);
 		}
 	}, _lifetime);
+
+	_downloadApi->start();
 }
 
 void Application::closeAdditionalWindows() {
