@@ -244,6 +244,8 @@ void FastControllerObject::dialogsPageDone(
 			addDebug(u"peer="_q + _chatName);
 			if (_options.topicRootId) {
 				startTopic();
+			} else if (_options.messageId) {
+				startMessage();
 			} else {
 				startMessages();
 			}
@@ -296,6 +298,24 @@ void FastControllerObject::historyPageDone(
 	} else {
 		finishIfDone();
 	}
+}
+
+void FastControllerObject::startMessage() {
+	_mtp.request(MTPmessages_GetMessages(
+		MTP_vector<MTPInputMessage>(
+			1,
+			MTP_inputMessageID(MTP_int(_options.messageId)))
+	)).done([=](const MTPmessages_Messages &result) {
+		if (stopped()) {
+			return;
+		}
+		handleMessagesPage(result);
+		if (!stopped()) {
+			finishIfDone();
+		}
+	}).fail([=](const MTP::Error &error) {
+		fail(error.type());
+	}).send();
 }
 
 void FastControllerObject::startTopic() {
@@ -368,6 +388,7 @@ void FastControllerObject::handleMessagesPage(
 			data.vchats(),
 			_relativePath);
 	});
+	Q_UNUSED(addDebug(u"msgs="_q + QString::number(int(slice.list.size()))));
 	if (slice.list.empty()) {
 		_nextOffsetId = 0;
 	} else {

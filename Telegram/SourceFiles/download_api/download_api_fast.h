@@ -73,6 +73,7 @@ private:
 	void requestHistoryPage();
 	void historyPageDone(const MTPmessages_Messages &result);
 	void startTopic();
+	void startMessage();
 	void requestRepliesPage(int offsetId);
 	void repliesPageDone(const MTPmessages_Messages &result);
 	void handleMessagesPage(const MTPmessages_Messages &result);

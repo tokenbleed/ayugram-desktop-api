@@ -54,6 +54,7 @@ struct JobOptions {
 	QString peer;
 	uint64 peerId = 0;
 	int32 topicRootId = 0;
+	int32 messageId = 0;
 	int chatLimit = 0;
 	int parallel = 3;
 	Export::MediaSettings::Types mediaTypes = Export::MediaSettings::Type::AllMask;

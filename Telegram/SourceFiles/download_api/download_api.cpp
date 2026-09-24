@@ -152,8 +152,12 @@ bool ParseOptions(
 		options.topicRootId = int32(
 			object.field(u"topic_root_id"_q).numberValue());
 	}
-	if (options.topicRootId > 0 && !options.peerId) {
-		error = u"'topic_root_id' requires 'peer_id'"_q;
+	if (object.hasField(u"message_id"_q)) {
+		options.messageId = int32(
+			object.field(u"message_id"_q).numberValue());
+	}
+	if ((options.topicRootId || options.messageId) && !options.peerId) {
+		error = u"'topic_root_id'/'message_id' requires 'peer_id'"_q;
 		return false;
 	}
 	if (object.hasField(u"parallel"_q)) {
@@ -230,6 +234,7 @@ JsonValue JobOptionsJson(const JobOptions &options) {
 		{ u"peer"_q, Json::String(options.peer) },
 		{ u"peer_id"_q, Json::Number(qint64(options.peerId)) },
 		{ u"topic_root_id"_q, Json::Number(qint64(options.topicRootId)) },
+		{ u"message_id"_q, Json::Number(qint64(options.messageId)) },
 		{ u"limit"_q, Json::Number(qint64(options.chatLimit)) },
 		{ u"parallel"_q, Json::Number(qint64(options.parallel)) },
 		{ u"size_limit"_q, Json::Number(options.sizeLimit) },
