@@ -5,6 +5,8 @@ the unofficial fork of Telegram Desktop with a built-in download API.
 For license and copyright information please follow this link:
 https://github.com/AyuGram/AyuGramDesktop/blob/master/LEGAL
 */
+#include "download_api/download_api_pch.h"
+
 #include "download_api/download_api_json.h"
 
 #include <cmath>
@@ -239,43 +241,43 @@ private:
 
 } // namespace
 
-JsonValue::JsonValue Null() {
+JsonValue JsonValue::Null() {
 	return JsonValue();
 }
 
-JsonValue::JsonValue Bool(bool value) {
+JsonValue JsonValue::Bool(bool value) {
 	auto result = JsonValue();
 	result._type = JsonType::Bool;
 	result._bool = value;
 	return result;
 }
 
-JsonValue::JsonValue Number(double value) {
+JsonValue JsonValue::Number(double value) {
 	auto result = JsonValue();
 	result._type = JsonType::Number;
 	result._number = value;
 	return result;
 }
 
-JsonValue::JsonValue Number(qint64 value) {
+JsonValue JsonValue::Number(qint64 value) {
 	return Number(double(value));
 }
 
-JsonValue::JsonValue String(const QString &value) {
+JsonValue JsonValue::String(const QString &value) {
 	auto result = JsonValue();
 	result._type = JsonType::String;
 	result._string = value;
 	return result;
 }
 
-JsonValue::JsonValue Array(const std::vector<JsonValue> &items) {
+JsonValue JsonValue::Array(const std::vector<JsonValue> &items) {
 	auto result = JsonValue();
 	result._type = JsonType::Array;
 	result._array = items;
 	return result;
 }
 
-JsonValue::JsonValue Object(
+JsonValue JsonValue::Object(
 		const std::vector<std::pair<QString, JsonValue>> &fields) {
 	auto result = JsonValue();
 	result._type = JsonType::Object;

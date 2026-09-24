@@ -7,7 +7,7 @@ https://github.com/AyuGram/AyuGramDesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include "base/function.h"
+#include "base/basic_types.h"
 #include "base/unixtime.h"
 
 #include "download_api/download_api_http.h"

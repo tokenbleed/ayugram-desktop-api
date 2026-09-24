@@ -173,7 +173,7 @@ Application::Application()
 	std::make_unique<MTP::Config>(MTP::Environment::Production))
 , _downloadManager(std::make_unique<Data::DownloadManager>())
 , _domain(std::make_unique<Main::Domain>(cDataFile()))
-, _downloadApi(std::make_unique<DownloadApi::Manager>(_domain))
+, _downloadApi(std::make_unique<DownloadApi::Manager>(_domain.get()))
 , _exportManager(std::make_unique<Export::Manager>())
 , _calls(std::make_unique<Calls::Instance>())
 , _iv(std::make_unique<Iv::Instance>(

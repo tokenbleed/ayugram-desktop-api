@@ -7,21 +7,35 @@ https://github.com/AyuGram/AyuGramDesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include "base/function.h"
+#include "base/basic_types.h"
 #include "base/timer.h"
-#include "base/unixtime.h"
 #include "base/weak_ptr.h"
+
+#include <rpl/rpl.h>
+
+#include "base/unixtime.h"
 
 #include "data/data_peer_id.h"
 
+#include "export/export_api_wrap.h"
 #include "export/export_settings.h"
+#include "export/data/export_data_types.h"
+#include "export/output/export_output_abstract.h"
+#include "export/output/export_output_result.h"
+#include "export/output/export_output_stats.h"
 
 #include <QtCore/QPointer>
 #include <crl/crl_object_on_queue.h>
 
 #include <vector>
 
+namespace MTP {
+class Instance;
+} // namespace MTP
+
 namespace DownloadApi {
+
+class ControllerObject;
 
 struct JobOptions {
 	enum class Mode {
@@ -80,7 +94,7 @@ public:
 	Controller &operator=(const Controller &other) = delete;
 	~Controller();
 
-	void start(JobOptions &&options, const Export::Environment &environment);
+	void start(JobOptions options, const Export::Environment &environment);
 	void skipFile(uint64 randomId);
 	void cancel();
 
@@ -92,6 +106,52 @@ public:
 private:
 	using Implementation = ControllerObject;
 	crl::object_on_queue<Implementation> _wrapped;
+	rpl::lifetime _lifetime;
+
+};
+
+class ControllerObject {
+public:
+	ControllerObject(
+		crl::weak_on_queue<ControllerObject> weak,
+		QPointer<MTP::Instance> mtproto);
+
+	[[nodiscard]] rpl::producer<JobState> state() const;
+	void start(JobOptions options, const Export::Environment &environment);
+	void skipFile(uint64 randomId);
+	void cancel();
+
+private:
+	using DownloadProgress = Export::ApiWrap::DownloadProgress;
+
+	void setState(JobState &&state);
+	void fail(const QString &error);
+	bool ioCatchError(const Export::Output::Result &result);
+	void initialize();
+	void initialized(const Export::ApiWrap::StartInfo &info);
+	void collectDialogs();
+	void dialogsCollected(Export::Data::DialogsInfo &&info);
+	void selectDialogs();
+	void exportNextDialog();
+	void finishJob();
+	void fillProgressState(const DownloadProgress &progress);
+	void fillDialogState();
+
+	Export::ApiWrap _api;
+	Export::Output::Stats _stats;
+	Export::Settings _settings;
+	JobOptions _options;
+	Export::Environment _environment;
+	std::unique_ptr<Export::Output::AbstractWriter> _writer;
+	Export::Data::DialogsInfo _dialogs;
+	std::vector<int> _queue;
+	int _cursor = -1;
+	int _messagesWritten = 0;
+	int _messagesCount = 0;
+	bool _cancelled = false;
+
+	JobState _state;
+	rpl::event_stream<JobState> _stateChanges;
 	rpl::lifetime _lifetime;
 
 };

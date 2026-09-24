@@ -7,12 +7,9 @@ https://github.com/AyuGram/AyuGramDesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include "download_api/download_api.h"
-#include "download_api/download_api_http.h"
-#include "download_api/download_api_job.h"
-#include "download_api/download_api_json.h"
+#include "export/export_pch.h"
 
-#include <QtCore/QByteArray>
-#include <QtCore/QDateTime>
-#include <QtCore/QDir>
-#include <QtCore/QString>
+#include "download_api/download_api_http.h"
+#include "download_api/download_api_json.h"
+#include "download_api/download_api_job.h"
+#include "download_api/download_api.h"

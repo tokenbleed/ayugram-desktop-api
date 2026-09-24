@@ -5,10 +5,13 @@ the unofficial fork of Telegram Desktop with a built-in download API.
 For license and copyright information please follow this link:
 https://github.com/AyuGram/AyuGramDesktop/blob/master/LEGAL
 */
+#include "download_api/download_api_pch.h"
+
 #include "download_api/download_api_job.h"
 
 #include "export/export_api_wrap.h"
 #include "export/export_settings.h"
+#include "export/data/export_data_types.h"
 #include "export/output/export_output_abstract.h"
 #include "export/output/export_output_result.h"
 #include "export/output/export_output_stats.h"
@@ -66,51 +69,6 @@ QString SelectorTypeName(Export::Data::DialogInfo::Type type) {
 
 } // namespace
 
-class ControllerObject {
-public:
-	ControllerObject(
-		crl::weak_on_queue<ControllerObject> weak,
-		QPointer<MTP::Instance> mtproto);
-
-	[[nodiscard]] rpl::producer<JobState> state() const;
-	void start(JobOptions &&options, const Export::Environment &environment);
-	void skipFile(uint64 randomId);
-	void cancel();
-
-private:
-	using DownloadProgress = Export::ApiWrap::DownloadProgress;
-
-	void setState(JobState &&state);
-	void fail(const QString &error);
-	bool ioCatchError(const Export::Output::Result &result);
-	void initialize();
-	void initialized(const Export::ApiWrap::StartInfo &info);
-	void collectDialogs();
-	void dialogsCollected(Export::Data::DialogsInfo &&info);
-	void selectDialogs();
-	void exportNextDialog();
-	void finishJob();
-	void fillProgressState(const DownloadProgress &progress);
-	void fillDialogState();
-
-	Export::ApiWrap _api;
-	Export::Output::Stats _stats;
-	Export::Settings _settings;
-	JobOptions _options;
-	Export::Environment _environment;
-	std::unique_ptr<Export::Output::AbstractWriter> _writer;
-	Export::Data::DialogsInfo _dialogs;
-	std::vector<int> _queue;
-	int _cursor = -1;
-	int _messagesWritten = 0;
-	int _messagesCount = 0;
-	bool _cancelled = false;
-
-	JobState _state;
-	rpl::event_stream<JobState> _stateChanges;
-	rpl::lifetime _lifetime;
-
-};
 
 Controller::Controller(QPointer<MTP::Instance> mtproto)
 : _wrapped(std::move(mtproto)) {
@@ -120,7 +78,7 @@ Controller::~Controller() {
 }
 
 void Controller::start(
-		JobOptions &&options,
+		JobOptions options,
 		const Export::Environment &environment) {
 	_wrapped.with([=](Implementation &unwrapped) {
 		unwrapped.start(std::move(options), environment);
@@ -192,7 +150,7 @@ bool ControllerObject::ioCatchError(const Export::Output::Result &result) {
 }
 
 void ControllerObject::start(
-		JobOptions &&options,
+		JobOptions options,
 		const Export::Environment &environment) {
 	_options = std::move(options);
 	_environment = environment;
@@ -291,7 +249,7 @@ void ControllerObject::selectDialogs() {
 	if (!needle.isEmpty() && _queue.size() != 1) {
 		auto state = JobState();
 		state.status = JobState::Status::Error;
-		state.error = (_queue.isEmpty())
+		state.error = (_queue.empty())
 			? u"No matching chats"_q
 			: u"Multiple matching chats"_q;
 		for (const auto index : _queue) {

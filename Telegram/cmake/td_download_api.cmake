@@ -8,9 +8,6 @@ add_library(td_download_api OBJECT)
 init_non_host_target(td_download_api)
 add_library(tdesktop::td_download_api ALIAS td_download_api)
 
-target_precompile_headers(td_download_api PRIVATE
-    ${src_loc}/download_api/download_api_pch.h
-)
 nice_target_sources(td_download_api ${src_loc}
 PRIVATE
     download_api/download_api.cpp
@@ -22,4 +19,17 @@ PRIVATE
     download_api/download_api_json.cpp
     download_api/download_api_json.h
     download_api/download_api_pch.h
+)
+
+target_include_directories(td_download_api
+PUBLIC
+    ${src_loc}
+)
+
+target_link_libraries(td_download_api
+PUBLIC
+    desktop-app::lib_base
+    tdesktop::td_scheme
+    tdesktop::td_lang
+    tdesktop::td_export
 )

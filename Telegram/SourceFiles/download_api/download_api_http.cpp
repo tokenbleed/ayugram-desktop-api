@@ -5,7 +5,7 @@ the unofficial fork of Telegram Desktop with a built-in download API.
 For license and copyright information please follow this link:
 https://github.com/AyuGram/AyuGramDesktop/blob/master/LEGAL
 */
-#include "download_api/download_api_http.h"
+#include "download_api/download_api_pch.h"
 
 namespace DownloadApi {
 namespace {
@@ -54,7 +54,7 @@ HttpServer::HttpServer(
 : QObject(parent)
 , _handler(handler)
 , _responder(responder) {
-	connect(&_tcp, &QTcpServer::newConnections, this, &HttpServer::newConnection);
+	connect(&_tcp, &QTcpServer::newConnection, this, &HttpServer::newConnection);
 }
 
 bool HttpServer::listen(quint16 port) {
@@ -75,7 +75,7 @@ void HttpServer::newConnection() {
 		if (!socket) {
 			return;
 		}
-		const auto connection = std::make_unique<Connection>(this, socket, ++_nextId);
+		auto connection = std::make_unique<Connection>(this, socket, ++_nextId);
 		_connections.emplace(connection->id(), std::move(connection));
 	}
 }

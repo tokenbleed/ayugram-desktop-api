@@ -75,6 +75,13 @@ FilteredCommandLineArguments::FilteredCommandLineArguments(
 		pushArgument(argv[i]);
 	}
 
+	// Forward the download API configuration flags.
+	for (auto i = kForwardArgumentCount; i < argc; ++i) {
+		const auto arg = QString::fromLatin1(argv[i]);
+		if (arg.startsWith(u"-api-"_q)) {
+			pushArgument(argv[i]);
+		}
+	}
 #if defined Q_OS_WIN || defined Q_OS_MAC
 	if (OptionFreeType.value() || OptionHighDpiDownscale.value()) {
 		pushArgument("-platform");

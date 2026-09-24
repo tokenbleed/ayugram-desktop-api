@@ -5,15 +5,24 @@ the unofficial fork of Telegram Desktop with a built-in download API.
 For license and copyright information please follow this link:
 https://github.com/AyuGram/AyuGramDesktop/blob/master/LEGAL
 */
-#include "download_api/download_api.h"
+#include "download_api/download_api_pch.h"
 
 #include "download_api/download_api_json.h"
+
+#include "ui/style/style_core_direction.h"
+
+using namespace st;
+
+#include "data/data_types.h"
+#include "data/data_peer.h"
 
 #include "export/export_settings.h"
 
 #include "lang/lang_keys.h"
 #include "logs.h"
 #include "main/main_session.h"
+#include "mtproto/mtproto_config.h"
+#include "mtproto/mtp_instance.h"
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QDateTime>
@@ -333,8 +342,8 @@ void Manager::handleHealth(quint64 id) {
 		{ u"ok"_q, Json::Bool(true) },
 		{ u"logged_in"_q, Json::Bool(_session != nullptr) },
 		{ u"user_id"_q, _session
-			? Json::Number(qint64(_session->userId().value))
-			: Json::Number(0) },
+			? Json::Number(qint64(_session->userId().bare))
+			: Json::Number(qint64(0)) },
 		{ u"active_jobs"_q, Json::Number(qint64(_jobs.size())) },
 		{ u"running_jobs"_q, Json::Number(qint64(running)) },
 	}));
@@ -371,7 +380,7 @@ void Manager::handleCreateJob(
 		}));
 		return;
 	}
-	const auto job = std::make_unique<Job>(_nextJobId++, std::move(options));
+	auto job = std::make_unique<Job>(_nextJobId++, std::move(options));
 	const auto jobId = job->id;
 	_jobs.push_back(std::move(job));
 	respondJson(id, 200, Json::Object({
@@ -384,7 +393,7 @@ void Manager::handleCreateJob(
 void Manager::handleJobsList(quint64 id) {
 	auto jobs = std::vector<JsonValue>();
 	for (const auto &job : _jobs) {
-		jobs.push_back(writeJobJson(job));
+		jobs.push_back(writeJobJson(*job));
 	}
 	respondJson(id, 200, Json::Object({
 		{ u"ok"_q, Json::Bool(true) },
@@ -398,7 +407,7 @@ void Manager::handleJobById(quint64 id, const QString &jobId) {
 		notFound(id);
 		return;
 	}
-	respondJson(id, 200, std::move(writeJobJson(job)));
+	respondJson(id, 200, std::move(writeJobJson(*job)));
 }
 
 void Manager::handleCancel(quint64 id, const QString &jobId) {

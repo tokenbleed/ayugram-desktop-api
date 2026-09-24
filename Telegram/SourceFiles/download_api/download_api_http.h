@@ -7,7 +7,7 @@ https://github.com/AyuGram/AyuGramDesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include "base/function.h"
+#include "base/basic_types.h"
 
 #include <QtCore/QObject>
 #include <QtNetwork/QTcpServer>
@@ -39,6 +39,7 @@ public:
 
 	[[nodiscard]] bool listen(quint16 port);
 	void stop();
+	void respond(quint64 id, int status, QByteArray body);
 
 private:
 	class Connection final : public QObject {
@@ -47,12 +48,14 @@ private:
 			not_null<HttpServer*> server,
 			not_null<QTcpSocket*> socket,
 			quint64 id);
+
+		[[nodiscard]] quint64 id() const;
+		void respond(int status, QByteArray body);
 	private:
 		void readyRead();
 		void disconnected();
 		void parseMore();
 		void abort(int status);
-		void respond(int status, QByteArray body);
 
 		not_null<HttpServer*> _server;
 		not_null<QTcpSocket*> _socket;
@@ -66,15 +69,12 @@ private:
 		bool _dispatched = false;
 		bool _handled = false;
 
-		[[nodiscard]] quint64 id() const;
-
 	};
 
 	void newConnection();
-	void respond(quint64 id, int status, QByteArray body);
 
 	QTcpServer _tcp;
-	std::map<quint64, not_null<Connection*>> _connections;
+	std::map<quint64, std::unique_ptr<Connection>> _connections;
 	quint64 _nextId = 0;
 	Fn<void(quint64, HttpRequest&&)> _handler;
 	Fn<void(quint64, int, QByteArray)> _responder;
