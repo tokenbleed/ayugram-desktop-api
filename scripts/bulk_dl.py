@@ -8,6 +8,10 @@ Usage:
   ./bulk_dl.py list --peer "Network Team"
   ./bulk_dl.py download --dest /home/key/archives/nt --peer "Network Team" \
       --format html --media photo video file --poll
+
+  # a single forum topic (t.me/c/3581232090/307529 style links):
+  ./bulk_dl.py download --dest /home/key/archives/nt \
+      --peer-id 3581232090 --topic-root-id 307529 --format media --poll
   ./bulk_dl.py status 1
   ./bulk_dl.py cancel 1
 """
@@ -78,6 +82,10 @@ def cmd_download(args):
         body["peer"] = args.peer
     if args.chats:
         body["chats"] = args.chats
+    if args.peer_id:
+        body["peer_id"] = args.peer_id
+    if args.topic_root_id:
+        body["topic_root_id"] = args.topic_root_id
     if args.media:
         body["media"] = args.media
     if args.limit:
@@ -127,8 +135,10 @@ def main():
 
     download = sub.add_parser("download")
     download.add_argument("--dest", required=True)
-    download.add_argument("--peer")
+    download.add_argument("--peer", dest="peer")
     download.add_argument("--chats", default="all")
+    download.add_argument("--peer-id", dest="peer_id", type=int)
+    download.add_argument("--topic-root-id", dest="topic_root_id", type=int)
     download.add_argument("--format", default="html",
                           choices=["html", "json", "html_and_json", "media"])
     download.add_argument("--media", nargs="*", default=None)

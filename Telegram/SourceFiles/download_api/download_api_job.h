@@ -47,6 +47,8 @@ struct JobOptions {
 	QString format;
 	QString chatSelector;
 	QString peer;
+	uint64 peerId = 0;
+	int32 topicRootId = 0;
 	int chatLimit = 0;
 	Export::MediaSettings::Types mediaTypes = Export::MediaSettings::Type::AllMask;
 	int64 sizeLimit = 0;
@@ -132,6 +134,7 @@ private:
 	void collectDialogs();
 	void dialogsCollected(Export::Data::DialogsInfo &&info);
 	void selectDialogs();
+	void exportTopic(const Export::Data::DialogInfo &info);
 	void exportNextDialog();
 	void finishJob();
 	void fillProgressState(const DownloadProgress &progress);

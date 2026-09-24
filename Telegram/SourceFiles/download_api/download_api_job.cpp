@@ -52,6 +52,23 @@ bool MatchSelector(
 	return false;
 }
 
+bool MatchBarePeerId(
+		const Export::Data::DialogInfo &info,
+		uint64 wanted) {
+	if (!wanted || wanted == info.peerId.value) {
+		return wanted != 0;
+	}
+	const auto input = info.input;
+	if (input.type() == mtpc_inputPeerChannel) {
+		return input.c_inputPeerChannel().vchannel_id().v == wanted;
+	} else if (input.type() == mtpc_inputPeerChat) {
+		return input.c_inputPeerChat().vchat_id().v == wanted;
+	} else if (input.type() == mtpc_inputPeerUser) {
+		return input.c_inputPeerUser().vuser_id().v == wanted;
+	}
+	return false;
+}
+
 QString SelectorTypeName(Export::Data::DialogInfo::Type type) {
 	using Type = Export::Data::DialogInfo::Type;
 	switch (type) {
@@ -265,6 +282,29 @@ void ControllerObject::selectDialogs() {
 		&& _queue.size() > _options.chatLimit) {
 		_queue.resize(_options.chatLimit);
 	}
+	if (_options.topicRootId > 0) {
+		auto topicIndex = -1;
+		for (const auto index : _queue) {
+			const auto info = _dialogs.item(index);
+			if (!info || !MatchBarePeerId(*info, _options.peerId)) {
+				continue;
+			}
+			if (topicIndex >= 0) {
+				fail(u"Multiple chats match peer_id"_q);
+				return;
+			}
+			topicIndex = index;
+		}
+		if (topicIndex < 0) {
+			auto state = JobState();
+			state.status = JobState::Status::Error;
+			state.error = u"No chat matches peer_id in dialogs"_q;
+			setState(std::move(state));
+			return;
+		}
+		_queue = { topicIndex };
+		_cursor = 0;
+	}
 	auto state = _state;
 	state.dialogIndex = 0;
 	state.dialogCount = int(_queue.size());
@@ -281,7 +321,52 @@ void ControllerObject::selectDialogs() {
 		finishJob();
 		return;
 	}
+	if (_options.topicRootId > 0) {
+		exportTopic(*_dialogs.item(_queue[0]));
+		return;
+	}
 	exportNextDialog();
+}
+
+void ControllerObject::exportTopic(const Export::Data::DialogInfo &info) {
+	if (_cancelled) {
+		return;
+	}
+	_messagesWritten = 0;
+	_messagesCount = 0;
+	auto topicInfo = Export::Data::DialogInfo();
+	topicInfo.type = info.type;
+	topicInfo.name = (u"topic_"_q
+		+ QString::number(_options.topicRootId)).toUtf8();
+	topicInfo.peerId = info.peerId;
+	if (_writer && ioCatchError(_writer->writeDialogStart(topicInfo))) {
+		return;
+	}
+	fillDialogState();
+	_api.requestTopicMessages(
+		info.peerId,
+		info.input,
+		_options.topicRootId,
+		[=](int count) {
+			_messagesCount = count;
+			fillDialogState();
+			return true;
+		}, [=](DownloadProgress progress) {
+			fillProgressState(progress);
+			return true;
+		}, [=](Export::Data::MessagesSlice &&slice) {
+			if (_writer && ioCatchError(_writer->writeDialogSlice(slice))) {
+				return false;
+			}
+			_messagesWritten += int(slice.list.size());
+			fillDialogState();
+			return true;
+		}, [=] {
+			if (_writer && ioCatchError(_writer->writeDialogEnd())) {
+				return;
+			}
+			finishJob();
+		});
 }
 
 void ControllerObject::exportNextDialog() {

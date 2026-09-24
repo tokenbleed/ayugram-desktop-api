@@ -127,6 +127,18 @@ bool ParseOptions(
 			0,
 			int(object.field(u"limit"_q).numberValue()));
 	}
+	if (object.hasField(u"peer_id"_q)) {
+		options.peerId = uint64(
+			object.field(u"peer_id"_q).numberValue());
+	}
+	if (object.hasField(u"topic_root_id"_q)) {
+		options.topicRootId = int32(
+			object.field(u"topic_root_id"_q).numberValue());
+	}
+	if (options.topicRootId > 0 && !options.peerId) {
+		error = u"'topic_root_id' requires 'peer_id'"_q;
+		return false;
+	}
 	const auto media = object.field(u"media"_q);
 	if (!media.isNull()) {
 		if (!media.isArray()) {
@@ -188,6 +200,8 @@ JsonValue JobOptionsJson(const JobOptions &options) {
 		{ u"format"_q, Json::String(options.format) },
 		{ u"chats"_q, Json::String(options.chatSelector) },
 		{ u"peer"_q, Json::String(options.peer) },
+		{ u"peer_id"_q, Json::Number(qint64(options.peerId)) },
+		{ u"topic_root_id"_q, Json::Number(qint64(options.topicRootId)) },
 		{ u"limit"_q, Json::Number(qint64(options.chatLimit)) },
 		{ u"size_limit"_q, Json::Number(options.sizeLimit) },
 		{ u"since"_q, Json::Number(qint64(options.from)) },

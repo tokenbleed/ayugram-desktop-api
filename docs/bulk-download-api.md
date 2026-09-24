@@ -67,6 +67,8 @@ Bearer ...` header, or `?token=` query parameter.
 | `format` | string | `"html"` | `html`, `json`, `html_and_json`, or `media` (files only, no index). |
 | `chats` | string | `"all"` | `all`, `personal`, `bot`, `groups`, `channels`, `supergroups`, `saved`. |
 | `peer` | string | — | Substring (case-insensitive) of the chat name or a numeric chat id. Must match exactly one dialog, otherwise the job errors with `candidates`. |
+| `peer_id` | int | — | Numeric chat id (e.g. the `3581232090` in `t.me/c/3581232090/307529`). Matches by bare chat/user/channel id, robust to the t.me format. |
+| `topic_root_id` | int | — | Download a single forum topic (its root message id, e.g. `307529`) instead of the whole chat. Requires `peer_id`. Output goes under `chats/chat_…/topic_<id>/`. |
 | `limit` | int | 0 | Cap the number of dialogs processed (0 = no limit). |
 | `media` | string[] | all types | `photo`, `video`, `voice`, `video_message`, `sticker`, `gif`, `file`. |
 | `size_limit_mb` | int | 0 (unlimited) | Skip media larger than N MB. |
