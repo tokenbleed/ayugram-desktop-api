@@ -67,12 +67,25 @@ Bearer ...` header, or `?token=` query parameter.
 | `format` | string | `"html"` | `html`, `json`, `html_and_json`, or `media` (files only, no index). |
 | `chats` | string | `"all"` | `all`, `personal`, `bot`, `groups`, `channels`, `supergroups`, `saved`. |
 | `peer` | string | — | Substring (case-insensitive) of the chat name or a numeric chat id. Must match exactly one dialog, otherwise the job errors with `candidates`. |
-| `peer_id` | int | — | Numeric chat id (e.g. the `3581232090` in `t.me/c/3581232090/307529`). Matches by bare chat/user/channel id, robust to the t.me format. |
+| `peer_id` | int | — | Numeric chat id (e.g. the `3581232090` in `t.me/c/3581232090/307529`). Matches by bare chat/user/channel id, robust to the t.me format. Required by the `direct` engine. |
+| `engine` | string | `"direct"` | `direct` (default) uses the normal `messages.getHistory` + `upload.getFile` API — **no takeout session, no 24h `TAKEOUT_INIT_DELAY` gate** — and downloads parallel files. `takeout` uses the built-in export engine (single-file, takeout-quota-gated, supports `html`/`json` output). Direct currently supports `format: media` only. |
+| `parallel` | int | 3 | Concurrent files (1–8) for the direct engine. |
 | `topic_root_id` | int | — | Download a single forum topic (its root message id, e.g. `307529`) instead of the whole chat. Requires `peer_id`. Output goes under `chats/chat_…/topic_<id>/`. |
 | `limit` | int | 0 | Cap the number of dialogs processed (0 = no limit). |
 | `media` | string[] | all types | `photo`, `video`, `voice`, `video_message`, `sticker`, `gif`, `file`. |
 | `size_limit_mb` | int | 0 (unlimited) | Skip media larger than N MB. |
 | `since` / `until` | unix seconds or ISO-8601 | — | Date range filter. |
+
+### Live speed telemetry
+
+Every job exposes live counters under `progress` (updated ~1/s): `bytes_per_second`, `files_per_second`, `eta_seconds`, `bytes_loaded_total`, `bytes_total_all`, `files_finished`, `files_total`, `files_skipped`. Example:
+
+```bash
+curl -H "X-Api-Token: $TOKEN" http://127.0.0.1:48123/api/v1/jobs/1
+# → {"status":"running", "progress":{..., "bytes_per_second": 13144152, "eta_seconds": 1200, ...}}
+```
+
+The direct engine writes parts to `<dest>/<path>.dltmp` and renames on completion, so re-running a job resumes (finished files are skipped by size, partials resume from `.dltmp`). Use `format: media` + `peer_id` + optional `topic_root_id` (forum channels) for bulk archives.
 
 Jobs that would exceed one concurrent export wait in `pending` and start
 automatically when the running job finishes (Telegram allows one takeout session
