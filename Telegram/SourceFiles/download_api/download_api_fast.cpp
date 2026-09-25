@@ -408,7 +408,8 @@ void FastControllerObject::handleMessagesPage(
 				+ u": "_q + preview.left(700));
 		}
 	}
-	if (slice.list.empty()) {
+	if (slice.list.empty()
+		|| int(slice.list.size()) < kMessagesLimit) {
 		_nextOffsetId = 0;
 	} else {
 		_nextOffsetId = slice.list.back().id;
@@ -438,8 +439,13 @@ void FastControllerObject::collectFiles(
 			continue;
 		}
 		if (_state.messages.size() < 100000
+			&& _listedIds.contains(message.id)) {
+			continue;
+		}
+		if (_state.messages.size() < 100000
 			&& (_options.mode == JobOptions::Mode::List
 				|| _options.messageId || _options.topicRootId)) {
+			_listedIds.insert(message.id);
 			auto listed = ListedMessage();
 			listed.id = message.id;
 			listed.date = message.date;
@@ -476,6 +482,58 @@ QString FastControllerObject::fileName(const Export::Data::File &file) const {
 	return mediaRelativePath() + name;
 }
 
+void FastControllerObject::partReceived(
+		int token,
+		int64 offset,
+		const QByteArray &bytes) {
+	const auto i = _activeFiles.find(token);
+	if (i == end(_activeFiles)) {
+		return;
+	}
+	const auto file = &i->second;
+	if (file->failed) {
+		return;
+	}
+	const auto finalPath = _options.dest + u"/"_q + file->path;
+	const auto tempPath = finalPath + u".dltmp"_q;
+	auto write = QFile(tempPath);
+	const auto opened = write.open(QIODevice::WriteOnly)
+		&& write.seek(offset)
+		&& write.write(bytes);
+	if (opened) {
+		write.flush();
+		write.close();
+		file->received += bytes.size();
+		_state.bytesLoadedTotal = std::min<qint64>(
+			_state.bytesLoadedTotal + bytes.size(),
+			_state.bytesTotalAll);
+		--file->inflight;
+		if (file->received >= file->size && file->inflight == 0) {
+			fileFinished(token);
+		}
+	} else {
+		write.close();
+		failPart(token, u"IO error"_q);
+	}
+}
+
+void FastControllerObject::failPart(int token, const QString &error) {
+	Q_UNUSED(error);
+	const auto i = _activeFiles.find(token);
+	if (i == end(_activeFiles)) {
+		return;
+	}
+	const auto file = &i->second;
+	if (!file->failed) {
+		file->failed = true;
+	}
+	--file->inflight;
+	if (file->inflight == 0) {
+		++_state.skippedFiles;
+		_activeFiles.erase(token);
+	}
+}
+
 void FastControllerObject::pumpFiles() {
 	if (stopped()) {
 		return;
@@ -491,17 +549,20 @@ void FastControllerObject::pumpFiles() {
 			&& !_pendingFiles.empty()) {
 			auto file = std::move(_pendingFiles.front());
 			_pendingFiles.erase(begin(_pendingFiles));
-			const auto index = int(_activeFiles.size());
-			_activeFiles.push_back(std::move(file));
-			requestParts(index);
+			const auto token = _nextToken++;
+			_activeFiles.emplace(token, std::move(file));
 		}
-		for (auto index = 0; index != int(_activeFiles.size());) {
-			const auto file = &_activeFiles[index];
-			if (!file->busy() && file->offset < file->size) {
-				requestParts(index);
-			} else {
-				++index;
+		auto tokens = std::vector<int>();
+		for (const auto &entry : _activeFiles) {
+			const auto file = &entry.second;
+			if (!file->failed
+				&& file->inflight < kPartsPerFile
+				&& file->nextOffset < file->size) {
+				tokens.push_back(entry.first);
 			}
+		}
+		for (const auto token : tokens) {
+			requestParts(token);
 		}
 	} while (_pumpingAgain);
 	_pumping = false;
@@ -513,118 +574,107 @@ void FastControllerObject::pumpFiles() {
 	}
 }
 
-void FastControllerObject::requestParts(int index) {
-	const auto file = &_activeFiles[index];
+void FastControllerObject::requestParts(int token) {
+	const auto i = _activeFiles.find(token);
+	if (i == end(_activeFiles)) {
+		return;
+	}
+	const auto file = &i->second;
+	if (file->failed || file->inflight >= kPartsPerFile
+		|| file->nextOffset >= file->size) {
+		return;
+	}
 	const auto finalPath = _options.dest + u"/"_q + file->path;
-	addDebug(u"rp: "_q + file->path + u" sz="_q
-		+ QString::number(file->size));
-	if (QFile::exists(finalPath)
-		&& QFileInfo(finalPath).size() == file->size) {
-		addDebug(u"rp-skip-exists"_q);
-		fileFinished(index);
-		return;
+	if (!file->resumeChecked) {
+		file->resumeChecked = true;
+		const auto dirPath = file->path.mid(0, file->path.lastIndexOf('/'));
+		if (!QDir(_options.dest).mkpath(dirPath)) {
+			fileFailed(token, u"IO error"_q);
+			return;
+		}
+		if (QFile::exists(finalPath)
+			&& QFileInfo(finalPath).size() == file->size) {
+			file->received = file->size;
+			file->nextOffset = file->size;
+			fileFinished(token);
+			return;
+		}
+		const auto tempPath = finalPath + u".dltmp"_q;
+		if (QFile::exists(tempPath)) {
+			file->nextOffset = std::min<qint64>(
+				file->size,
+				QFileInfo(tempPath).size());
+		}
 	}
-	const auto dirPath = file->path.mid(0, file->path.lastIndexOf('/'));
-	if (!QDir(_options.dest).mkpath(dirPath)) {
-		addDebug(u"rp-mkpath-fail: "_q + dirPath);
-		fileFailed(index, u"IO error"_q);
-		return;
-	}
-	addDebug(u"rp-issued"_q);
-	const auto tempPath = finalPath + u".dltmp"_q;
-	if (QFile::exists(tempPath)) {
-		file->offset = std::min<qint64>(
-			file->size,
-			QFileInfo(tempPath).size());
-	}
-	file->requestId = uint64(_mtp.request(MTPupload_GetFile(
+	const auto offset = file->nextOffset;
+	file->nextOffset += kFileChunkSize;
+	++file->inflight;
+	Q_UNUSED(_mtp.request(MTPupload_GetFile(
 		MTP_flags(0),
 		file->location.data,
-		MTP_long(file->offset),
+		MTP_long(offset),
 		MTP_int(kFileChunkSize)
 	)).done([=](const MTPupload_File &result) {
 		if (stopped()) {
 			return;
 		}
-		const auto f = &_activeFiles[index];
-		f->requestId = 0;
-		partsDone(index, result);
+		partsDone(token, offset, result);
 	}).fail([=](const MTP::Error &error) {
 		if (stopped()) {
 			return;
 		}
-		const auto f = &_activeFiles[index];
-		f->requestId = 0;
-		fileFailed(index, error.type());
+		failPart(token, error.type());
 	}).toDC(MTP::downloadDcId(
 		MTP::DcId(file->location.dcId),
 		0)).send());
 }
 
 void FastControllerObject::partsDone(
-		int index,
+		int token,
+		int64 offset,
 		const MTPupload_File &result) {
-	const auto file = &_activeFiles[index];
+	if (_activeFiles.find(token) == end(_activeFiles)) {
+		return;
+	}
 	result.match([&](const MTPDupload_file &data) {
-		const auto bytes = data.vbytes().v;
-		addDebug(u"part +"_q
-			+ QString::number(bytes.size())
-			+ u"/"_q + QString::number(file->size));
-		const auto finalPath = _options.dest + u"/"_q + file->path;
-		const auto tempPath = finalPath + u".dltmp"_q;
-		auto write = QFile(tempPath);
-		const auto opened = write.open(QIODevice::WriteOnly)
-			&& write.seek(file->offset)
-			&& write.write(bytes);
-		if (opened) {
-			write.flush();
-			file->offset += bytes.size();
-			_state.bytesLoadedTotal = std::min<qint64>(
-				_state.bytesLoadedTotal + bytes.size(),
-				_state.bytesTotalAll);
-			write.close();
-			if (file->offset >= file->size) {
-				fileFinished(index);
-			} else {
-				requestParts(index);
-			}
-		} else {
-			write.close();
-			fileFailed(index, u"IO error"_q);
-		}
+		partReceived(token, offset, data.vbytes().v);
 	}, [&](const MTPDupload_fileCdnRedirect &data) {
 		Q_UNUSED(data);
-		fileFailed(index, u"CDN redirect not supported"_q);
+		failPart(token, u"CDN redirect not supported"_q);
 	});
 	emitState();
 	pumpFiles();
 }
 
-void FastControllerObject::fileFailed(int index, const QString &error) {
-	if (stopped()) {
+void FastControllerObject::fileFailed(int token, const QString &error) {
+	Q_UNUSED(error);
+	const auto i = _activeFiles.find(token);
+	if (i == end(_activeFiles)) {
 		return;
 	}
-	Q_UNUSED(error);
-	_activeFiles.erase(begin(_activeFiles) + index);
-	++_state.skippedFiles;
+	auto file = &i->second;
+	file->failed = true;
+	if (file->inflight == 0) {
+		++_state.skippedFiles;
+		_activeFiles.erase(token);
+	}
 	emitState();
 	pumpFiles();
 }
 
-void FastControllerObject::fileFinished(int index) {
-	if (stopped()) {
+void FastControllerObject::fileFinished(int token) {
+	const auto i = _activeFiles.find(token);
+	if (i == end(_activeFiles)) {
 		return;
 	}
-	const auto file = &_activeFiles[index];
+	const auto file = &i->second;
 	const auto finalPath = _options.dest + u"/"_q + file->path;
 	const auto tempPath = finalPath + u".dltmp"_q;
 	if (QFile::exists(tempPath)) {
 		Q_UNUSED(QFile::rename(tempPath, finalPath));
 	}
 	++_state.filesFinished;
-	addDebug(u"done: "_q + file->path + u" off="_q
-		+ QString::number(file->offset));
-	_activeFiles.erase(begin(_activeFiles) + index);
+	_activeFiles.erase(token);
 }
 
 void FastControllerObject::finishIfDone() {
@@ -641,6 +691,7 @@ void FastControllerObject::finishIfDone() {
 	state.status = JobState::Status::Finished;
 	state.startedAt = _startedAt;
 	state.debug = _state.debug;
+	state.messages = _state.messages;
 	state.mainFile = _options.dest;
 	state.filesCount = _state.filesFinished;
 	state.bytesCount = _state.bytesLoadedTotal;

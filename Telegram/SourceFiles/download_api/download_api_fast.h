@@ -52,12 +52,21 @@ private:
 		Export::Data::FileLocation location;
 		int64 size = 0;
 		QString path;
-		int64 offset = 0;
-		mtpRequestId requestId = 0;
+		int64 nextOffset = 0;
+		int64 received = 0;
+		int inflight = 0;
+		bool resumeChecked = false;
+		bool failed = false;
 
 		[[nodiscard]] bool busy() const {
-			return requestId != 0;
+			return inflight > 0;
 		}
+	};
+
+	struct InFlight {
+		int file = -1;
+		mtpRequestId id = 0;
+		int64 offset = 0;
 	};
 
 	void setState(JobState &&state);
@@ -80,9 +89,11 @@ private:
 	void collectFiles(Export::Data::MessagesSlice &&slice);
 	void pumpFiles();
 	void requestParts(int index);
-	void partsDone(int index, const MTPupload_File &result);
+	void partsDone(int token, int64 offset, const MTPupload_File &result);
 	void fileFailed(int index, const QString &error);
 	void fileFinished(int index);
+	void partReceived(int token, int64 offset, const QByteArray &bytes);
+	void failPart(int token, const QString &error);
 	void finishIfDone();
 
 	QString mediaRelativePath() const;
@@ -102,7 +113,12 @@ private:
 	int _dialogsLimit = 100;
 
 	std::vector<ActiveFile> _pendingFiles;
-	std::vector<ActiveFile> _activeFiles;
+	std::map<int, ActiveFile> _activeFiles;
+	std::vector<InFlight> _inFlight;
+	base::flat_set<int32> _listedIds;
+	int _nextToken = 1;
+
+	static constexpr auto kPartsPerFile = 2;
 
 	bool _started = false;
 	bool _cancelled = false;
