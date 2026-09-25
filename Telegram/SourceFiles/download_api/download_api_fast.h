@@ -107,6 +107,7 @@ private:
 	bool _started = false;
 	bool _cancelled = false;
 	bool _finished = false;
+	bool _walkDone = false;
 	bool _pumping = false;
 	bool _pumpingAgain = false;
 	int _dialogsPages = 0;

@@ -131,6 +131,7 @@ bool ParseOptions(
 		options.engine = u"direct"_q;
 	}
 	if (options.engine == u"direct"_q
+		&& options.mode == JobOptions::Mode::Download
 		&& options.format != u"media"_q
 		&& !options.format.isEmpty()) {
 		error = u"Direct engine supports only 'format': 'media'"_q;
@@ -658,6 +659,18 @@ JsonValue Manager::writeJobJson(const Job &job) const {
 			candidates.push_back(Json::String(candidate));
 		}
 		fields.push_back({ u"candidates"_q, Json::Array(std::move(candidates)) });
+	}
+	if (!job.state.messages.empty()) {
+		auto messages = std::vector<JsonValue>();
+		for (const auto &message : job.state.messages) {
+			messages.push_back(Json::Object({
+				{ u"id"_q, Json::Number(qint64(message.id)) },
+				{ u"name"_q, Json::String(message.name) },
+				{ u"size"_q, Json::Number(message.size) },
+				{ u"date"_q, Json::Number(qint64(message.date)) },
+			}));
+		}
+		fields.push_back({ u"messages"_q, Json::Array(std::move(messages)) });
 	}
 	if (!job.state.chats.empty()) {
 		auto chats = std::vector<JsonValue>();

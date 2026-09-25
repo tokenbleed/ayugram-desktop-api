@@ -138,6 +138,7 @@ void FastControllerObject::emitState() {
 	_lastBps = state.bytesPerSecond;
 	_lastFilesBps = state.filesPerSecond;
 	state.debug = _state.debug;
+	state.messages = _state.messages;
 	setState(std::move(state));
 }
 
@@ -296,7 +297,8 @@ void FastControllerObject::historyPageDone(
 	if (_nextOffsetId > 0) {
 		requestHistoryPage();
 	} else {
-		finishIfDone();
+		_walkDone = true;
+		pumpFiles();
 	}
 }
 
@@ -369,7 +371,8 @@ void FastControllerObject::repliesPageDone(
 	if (_nextOffsetId > 0) {
 		requestRepliesPage(_nextOffsetId);
 	} else {
-		finishIfDone();
+		_walkDone = true;
+		pumpFiles();
 	}
 }
 
@@ -389,6 +392,22 @@ void FastControllerObject::handleMessagesPage(
 			_relativePath);
 	});
 	Q_UNUSED(addDebug(u"msgs="_q + QString::number(int(slice.list.size()))));
+	if (_options.messageId || _options.topicRootId) {
+		for (const auto &m : slice.list) {
+			auto preview = QString();
+			for (const auto &p : m.text) {
+				const auto t = (p.type == Export::Data::TextPart::Type::Url)
+					? u"URL"_q
+					: (p.type == Export::Data::TextPart::Type::TextUrl)
+					? u"TURL"_q
+					: u"TXT"_q;
+				preview += u"["_q + t + u"]"_q
+					+ QString::fromUtf8(p.text).left(140);
+			}
+			addDebug(u"msg "_q + QString::number(m.id)
+				+ u": "_q + preview.left(700));
+		}
+	}
 	if (slice.list.empty()) {
 		_nextOffsetId = 0;
 	} else {
@@ -416,6 +435,19 @@ void FastControllerObject::collectFiles(
 			continue;
 		}
 		if (file.size <= 0) {
+			continue;
+		}
+		if (_state.messages.size() < 20000
+			&& (_options.mode == JobOptions::Mode::List
+				|| _options.messageId || _options.topicRootId)) {
+			auto listed = ListedMessage();
+			listed.id = message.id;
+			listed.date = message.date;
+			listed.name = file.suggestedPath.trimmed();
+			listed.size = file.size;
+			_state.messages.push_back(std::move(listed));
+		}
+		if (_options.mode == JobOptions::Mode::List) {
 			continue;
 		}
 		auto active = ActiveFile();
@@ -476,7 +508,9 @@ void FastControllerObject::pumpFiles() {
 	addDebug(u"pump a/="_q + QString::number(int(_activeFiles.size()))
 		+ u"/"_q + QString::number(int(_pendingFiles.size())));
 	emitState();
-	finishIfDone();
+	if (_walkDone) {
+		finishIfDone();
+	}
 }
 
 void FastControllerObject::requestParts(int index) {

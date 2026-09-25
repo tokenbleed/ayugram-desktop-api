@@ -70,6 +70,13 @@ struct ListedChat {
 	TimeId date = 0;
 };
 
+struct ListedMessage {
+	int32 id = 0;
+	TimeId date = 0;
+	QString name;
+	int64 size = 0;
+};
+
 struct JobState {
 	enum class Status {
 		Pending,
@@ -102,6 +109,7 @@ struct JobState {
 	QString debug;
 	uint64 bytesRandomId = 0;
 	std::vector<ListedChat> chats;
+	std::vector<ListedMessage> messages;
 	QStringList candidates;
 	QString notice;
 };
