@@ -437,7 +437,7 @@ void FastControllerObject::collectFiles(
 		if (file.size <= 0) {
 			continue;
 		}
-		if (_state.messages.size() < 20000
+		if (_state.messages.size() < 100000
 			&& (_options.mode == JobOptions::Mode::List
 				|| _options.messageId || _options.topicRootId)) {
 			auto listed = ListedMessage();
