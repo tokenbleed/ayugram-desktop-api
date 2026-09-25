@@ -118,7 +118,9 @@ private:
 	base::flat_set<int32> _listedIds;
 	int _nextToken = 1;
 
-	static constexpr auto kPartsPerFile = 2;
+	static constexpr auto kPartsPerFile = 5;
+	static constexpr int kMediaSessions = 4;
+	static constexpr int64 kPartSize = 1 * 1024 * 1024;
 
 	bool _started = false;
 	bool _cancelled = false;

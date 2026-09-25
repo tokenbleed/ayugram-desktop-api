@@ -607,13 +607,13 @@ void FastControllerObject::requestParts(int token) {
 		}
 	}
 	const auto offset = file->nextOffset;
-	file->nextOffset += kFileChunkSize;
+	file->nextOffset += kPartSize;
 	++file->inflight;
 	Q_UNUSED(_mtp.request(MTPupload_GetFile(
 		MTP_flags(0),
 		file->location.data,
 		MTP_long(offset),
-		MTP_int(kFileChunkSize)
+		MTP_int(kPartSize)
 	)).done([=](const MTPupload_File &result) {
 		if (stopped()) {
 			return;
@@ -626,7 +626,7 @@ void FastControllerObject::requestParts(int token) {
 		failPart(token, error.type());
 	}).toDC(MTP::downloadDcId(
 		MTP::DcId(file->location.dcId),
-		0)).send());
+		token % kMediaSessions)).send());
 }
 
 void FastControllerObject::partsDone(
