@@ -722,13 +722,20 @@ void FastControllerObject::fileFinished(int token) {
 			? check.size()
 			: 0;
 		check.close();
-		if (onDisk != expected) {
+		// Size is not evidence: the parts are written at their offsets, so a
+		// file still missing regions already reports its full size, and a
+		// retried part is counted twice in the byte accounting, which is
+		// enough to finish a file early. Allocation is what says the bytes
+		// are there.
+		const auto allocated = allocatedBytes(tempPath);
+		if (onDisk != expected || allocated < expected) {
 			// The bytes on disk are the only evidence a transfer worked.
 			// A short file must never be renamed to the finished name:
 			// leave the .dltmp in place and say what happened.
 			++_state.skippedFiles;
 			addDebug(u"SHORT "_q + file->path
 				+ u" on-disk="_q + QString::number(onDisk)
+				+ u" allocated="_q + QString::number(allocated)
 				+ u" expected="_q + QString::number(expected));
 			_activeFiles.erase(token);
 			return;
