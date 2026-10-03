@@ -497,7 +497,10 @@ void FastControllerObject::partReceived(
 	const auto finalPath = _options.dest + u"/"_q + file->path;
 	const auto tempPath = finalPath + u".dltmp"_q;
 	auto write = QFile(tempPath);
-	const auto opened = write.open(QIODevice::WriteOnly)
+	// ReadWrite, not WriteOnly: Qt's WriteOnly implies Truncate, so with
+	// kPartsPerFile parts in flight every part wiped the file it was
+	// writing into and the result was one chunk plus holes.
+	const auto opened = write.open(QIODevice::ReadWrite)
 		&& write.seek(offset)
 		&& write.write(bytes);
 	if (opened) {
@@ -670,7 +673,24 @@ void FastControllerObject::fileFinished(int token) {
 	const auto file = &i->second;
 	const auto finalPath = _options.dest + u"/"_q + file->path;
 	const auto tempPath = finalPath + u".dltmp"_q;
+	const auto expected = file->size;
 	if (QFile::exists(tempPath)) {
+		auto check = QFile(tempPath);
+		const auto onDisk = check.open(QIODevice::ReadOnly)
+			? check.size()
+			: 0;
+		check.close();
+		if (onDisk != expected) {
+			// The bytes on disk are the only evidence a transfer worked.
+			// A short file must never be renamed to the finished name:
+			// leave the .dltmp in place and say what happened.
+			++_state.skippedFiles;
+			addDebug(u"SHORT "_q + file->path
+				+ u" on-disk="_q + QString::number(onDisk)
+				+ u" expected="_q + QString::number(expected));
+			_activeFiles.erase(token);
+			return;
+		}
 		Q_UNUSED(QFile::rename(tempPath, finalPath));
 	}
 	++_state.filesFinished;
