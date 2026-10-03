@@ -13,6 +13,10 @@ https://github.com/AyuGram/AyuGramDesktop/blob/master/LEGAL
 #include "logs.h"
 #include "mtproto/mtp_instance.h"
 
+#if !defined(_WIN32)
+#include <sys/stat.h>
+#endif
+
 #include <QtCore/QDateTime>
 #include <QtCore/QDir>
 
@@ -482,6 +486,27 @@ QString FastControllerObject::fileName(const Export::Data::File &file) const {
 	return mediaRelativePath() + name;
 }
 
+namespace {
+
+// allocatedBytes reports the bytes actually allocated for a path (st_blocks *
+// 512), or -1 where the platform cannot say. A file whose bytes never arrived
+// is sparse: its size is right while its allocation is not.
+qint64 allocatedBytes(const QString &path) {
+#ifdef Q_OS_WIN
+	Q_UNUSED(path);
+	return -1;
+#else
+	struct stat info = {};
+	const auto utf8 = path.toUtf8();
+	if (::stat(utf8.constData(), &info) != 0) {
+		return -1;
+	}
+	return qint64(info.st_blocks) * 512;
+#endif
+}
+
+} // namespace
+
 void FastControllerObject::partReceived(
 		int token,
 		int64 offset,
@@ -597,17 +622,34 @@ void FastControllerObject::requestParts(int token) {
 		}
 		if (QFile::exists(finalPath)
 			&& QFileInfo(finalPath).size() == file->size) {
+			// Size alone is not evidence. A file whose bytes never arrived
+			// is sparse: it reports the right size while almost nothing is
+			// allocated, and trusting the size would silently accept it.
+			const auto allocated = allocatedBytes(finalPath);
+			if (allocated < 0 || allocated >= file->size) {
+				file->received = file->size;
+				file->nextOffset = file->size;
+				fileFinished(token);
+				return;
+			}
+			addDebug(u"REDO sparse "_q + file->path
+				+ u" allocated="_q + QString::number(allocated)
+				+ u" size="_q + QString::number(file->size));
+		}
+		// A partial with all of its bytes is finished work from an
+		// interrupted run: promote it rather than downloading it again.
+		const auto tempPath = finalPath + u".dltmp"_q;
+		if (QFile::exists(tempPath)
+			&& QFileInfo(tempPath).size() == file->size
+			&& allocatedBytes(tempPath) >= file->size) {
 			file->received = file->size;
 			file->nextOffset = file->size;
 			fileFinished(token);
 			return;
 		}
-		const auto tempPath = finalPath + u".dltmp"_q;
-		if (QFile::exists(tempPath)) {
-			file->nextOffset = std::min<qint64>(
-				file->size,
-				QFileInfo(tempPath).size());
-		}
+		// Anything else is downloaded again from the start: parts arrive in
+		// parallel, so a partial's size is the highest offset written, not a
+		// watermark of what is present.
 	}
 	const auto offset = file->nextOffset;
 	file->nextOffset += kPartSize;
@@ -691,7 +733,21 @@ void FastControllerObject::fileFinished(int token) {
 			_activeFiles.erase(token);
 			return;
 		}
-		Q_UNUSED(QFile::rename(tempPath, finalPath));
+		// QFile::rename refuses to overwrite, so a stale file at the
+		// destination would keep the finished bytes stranded in .dltmp
+		// while the job reported success. Replace explicitly and check.
+		if (QFile::exists(finalPath) && !QFile::remove(finalPath)) {
+			++_state.skippedFiles;
+			addDebug(u"REMOVE failed "_q + file->path);
+			_activeFiles.erase(token);
+			return;
+		}
+		if (!QFile::rename(tempPath, finalPath)) {
+			++_state.skippedFiles;
+			addDebug(u"RENAME failed "_q + file->path);
+			_activeFiles.erase(token);
+			return;
+		}
 	}
 	++_state.filesFinished;
 	_activeFiles.erase(token);
