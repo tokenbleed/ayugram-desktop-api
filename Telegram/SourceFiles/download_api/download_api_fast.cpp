@@ -22,6 +22,7 @@ https://github.com/AyuGram/AyuGramDesktop/blob/master/LEGAL
 
 #include <algorithm>
 #include <cmath>
+#include <set>
 
 namespace DownloadApi {
 namespace {
@@ -79,6 +80,7 @@ FastControllerObject::FastControllerObject(
 		crl::weak_on_queue<FastControllerObject> weak,
 		QPointer<MTP::Instance> mtproto)
 : _mtp(mtproto, weak.runner())
+, _instance(mtproto)
 , _state(JobState{}) {
 }
 
@@ -307,6 +309,29 @@ void FastControllerObject::historyPageDone(
 }
 
 void FastControllerObject::startMessage() {
+	addDebug(u"startMessage id="_q + QString::number(_options.messageId));
+	if (_peer.type() == mtpc_inputPeerChannel) {
+		_mtp.request(MTPchannels_GetMessages(
+			MTP_inputChannel(
+				_peer.c_inputPeerChannel().vchannel_id(),
+				_peer.c_inputPeerChannel().vaccess_hash()),
+			MTP_vector<MTPInputMessage>(
+				1,
+				MTP_inputMessageID(MTP_int(_options.messageId)))
+		)).done([=](const MTPmessages_Messages &result) {
+			if (stopped()) {
+				return;
+			}
+			addDebug(u"channel fetch done"_q);
+			handleMessagesPage(result);
+			if (!stopped()) {
+				finishIfDone();
+			}
+		}).fail([=](const MTP::Error &error) {
+			fail(error.type());
+		}).send();
+		return;
+	}
 	_mtp.request(MTPmessages_GetMessages(
 		MTP_vector<MTPInputMessage>(
 			1,
@@ -382,6 +407,7 @@ void FastControllerObject::repliesPageDone(
 
 void FastControllerObject::handleMessagesPage(
 		const MTPmessages_Messages &result) {
+	addDebug(u"HMP type="_q + QString::number(int(result.type())));
 	auto slice = result.match([&](
 			const MTPDmessages_messagesNotModified &) {
 		return Export::Data::MessagesSlice();
@@ -397,6 +423,38 @@ void FastControllerObject::handleMessagesPage(
 	});
 	Q_UNUSED(addDebug(u"msgs="_q + QString::number(int(slice.list.size()))));
 	if (_options.messageId || _options.topicRootId) {
+		result.match([](const MTPDmessages_messagesNotModified &) {
+		}, [&](const auto &data) {
+			for (const auto &msg : data.vmessages().v) {
+				msg.match([&](const MTPDmessage &d) {
+					auto media = u"none"_q;
+					if (const auto &m = d.vmedia()) {
+						media = QString::number(int(m->type()));
+					}
+					addDebug(u"raw msg="_q + QString::number(d.vid().v)
+						+ u" media="_q + media);
+				}, [&](const MTPDmessageService &d) {
+					auto action = d.vaction();
+					auto title = QString();
+					if (action.type() == mtpc_messageActionTopicCreate) {
+						title = u" title=\""_q
+							+ QString::fromUtf8(
+								action.c_messageActionTopicCreate()
+									.vtitle().v)
+							+ u"\""_q;
+					}
+					addDebug(u"raw svc msg="_q + QString::number(d.vid().v)
+						+ u" action="_q + QString::number(int(action.type()))
+						+ title);
+				}, [](const MTPDmessageEmpty &) {
+					// empty
+				}, [&](const auto &) {
+					addDebug(u"raw other construct"_q);
+				});
+			}
+			addDebug(u"raw vector n="_q
+				+ QString::number(int(data.vmessages().v.size())));
+		});
 		for (const auto &m : slice.list) {
 			auto preview = QString();
 			for (const auto &p : m.text) {
@@ -546,7 +604,6 @@ void FastControllerObject::partReceived(
 }
 
 void FastControllerObject::failPart(int token, const QString &error) {
-	Q_UNUSED(error);
 	const auto i = _activeFiles.find(token);
 	if (i == end(_activeFiles)) {
 		return;
@@ -554,12 +611,16 @@ void FastControllerObject::failPart(int token, const QString &error) {
 	const auto file = &i->second;
 	if (!file->failed) {
 		file->failed = true;
+		addDebug(u"FAILPART "_q + error
+			+ u" path="_q + file->path);
 	}
 	--file->inflight;
 	if (file->inflight == 0) {
 		++_state.skippedFiles;
 		_activeFiles.erase(token);
 	}
+	emitState();
+	pumpFiles();
 }
 
 void FastControllerObject::pumpFiles() {
@@ -654,6 +715,31 @@ void FastControllerObject::requestParts(int token) {
 	const auto offset = file->nextOffset;
 	file->nextOffset += kPartSize;
 	++file->inflight;
+	{
+		// Once per file: record the dispatch + live session state, and
+		// restart all MTP sessions once per process (a download-DC session
+		// that died or was never established never reconnects on its own in
+		// this headless build; requests sent to it queue forever silently).
+		static std::set<int> restarted;
+		const auto shifted = int(MTP::downloadDcId(
+			MTP::DcId(file->location.dcId),
+			token % kMediaSessions));
+		const auto inst = _instance.data();
+		addDebug(u"DISPATCH dc="_q
+			+ QString::number(int(file->location.dcId))
+			+ u" state="_q
+			+ QString::number(inst
+				? inst->dcstate(MTP::ShiftedDcId(shifted))
+				: -999)
+			+ u" path="_q + file->path.left(40));
+		if (!restarted.count(shifted)) {
+			restarted.insert(shifted);
+			if (inst) {
+				addDebug(u"RESTART all sessions"_q);
+				inst->restart();
+			}
+		}
+	}
 	Q_UNUSED(_mtp.request(MTPupload_GetFile(
 		MTP_flags(0),
 		file->location.data,
@@ -758,6 +844,11 @@ void FastControllerObject::fileFinished(int token) {
 	}
 	++_state.filesFinished;
 	_activeFiles.erase(token);
+	// A finished file frees a parallel slot; promotions (resume path) have
+	// no network callback that would re-pump, so do it here or the queue
+	// starves after exactly `parallel` on-disk files.
+	emitState();
+	pumpFiles();
 }
 
 void FastControllerObject::finishIfDone() {

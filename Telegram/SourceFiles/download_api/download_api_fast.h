@@ -100,6 +100,7 @@ private:
 	QString fileName(const Export::Data::File &file) const;
 
 	MTP::ConcurrentSender _mtp;
+	QPointer<MTP::Instance> _instance;
 
 	JobOptions _options;
 	uint64 _selfId = 0;
