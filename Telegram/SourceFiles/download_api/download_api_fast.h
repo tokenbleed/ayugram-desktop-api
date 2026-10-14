@@ -25,6 +25,7 @@ https://github.com/AyuGram/AyuGramDesktop/blob/master/LEGAL
 
 #include <QtCore/QPointer>
 #include <QtCore/QFile>
+#include <QtCore/QSet>
 #include <crl/crl_object_on_queue.h>
 
 #include <map>
@@ -98,9 +99,14 @@ private:
 
 	QString mediaRelativePath() const;
 	QString fileName(const Export::Data::File &file) const;
+	QString uniquePath(const QString &path, int64 messageId);
 
 	MTP::ConcurrentSender _mtp;
 	QPointer<MTP::Instance> _instance;
+	// Every destination this run has claimed, so a second message that
+	// suggests an identical file name gets its own path instead of sharing
+	// one .dltmp with the first.
+	QSet<QString> _usedPaths;
 
 	JobOptions _options;
 	uint64 _selfId = 0;

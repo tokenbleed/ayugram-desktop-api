@@ -21,6 +21,8 @@ PRIVATE
     download_api/download_api_json.cpp
     download_api/download_api_json.h
     download_api/download_api_pch.h
+    download_api/download_api_topics.cpp
+    download_api/download_api_topics.h
 )
 
 target_include_directories(td_download_api

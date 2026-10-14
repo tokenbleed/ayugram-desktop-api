@@ -21,6 +21,8 @@ https://github.com/AyuGram/AyuGramDesktop/blob/master/LEGAL
 
 namespace DownloadApi {
 
+class TopicsRequest;
+
 class Manager final : public QObject {
 public:
 	explicit Manager(not_null<Main::Domain*> domain);
@@ -53,6 +55,7 @@ private:
 	void handleRoot(quint64 id);
 	void handleHealth(quint64 id);
 	void handleCreateJob(quint64 id, bool list, const QByteArray &body);
+	void handleTopics(quint64 id, const QByteArray &body);
 	void handleJobsList(quint64 id);
 	void handleJobById(quint64 id, const QString &jobId);
 	void handleCancel(quint64 id, const QString &jobId);
@@ -70,6 +73,7 @@ private:
 	HttpServer *_server = nullptr;
 	QString _token;
 	std::vector<std::unique_ptr<Job>> _jobs;
+	std::vector<TopicsRequest *> _topicsRequests;
 	int _nextJobId = 1;
 	rpl::lifetime _lifetime;
 

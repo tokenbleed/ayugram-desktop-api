@@ -521,7 +521,7 @@ void FastControllerObject::collectFiles(
 		auto active = ActiveFile();
 		active.location = file.location;
 		active.size = file.size;
-		active.path = fileName(file);
+		active.path = uniquePath(fileName(file), message.id);
 		_pendingFiles.push_back(std::move(active));
 		_state.bytesTotalAll += file.size;
 		++_state.filesTotal;
@@ -534,6 +534,38 @@ void FastControllerObject::collectFiles(
 
 QString FastControllerObject::mediaRelativePath() const {
 	return _relativePath + u"media/"_q;
+}
+
+// uniquePath keeps two messages that suggest the same file name from sharing
+// one destination. A topic can hold the same "MOON HQ HOTS.txt" twice with
+// different contents, and one relative path means one .dltmp: the parts of
+// both files interleave, the size check fails, and both are thrown away as
+// short. The message id disambiguates, which leaves every existing path (and
+// therefore every finished download) exactly where it already is.
+QString FastControllerObject::uniquePath(
+		const QString &path,
+		int64 messageId) {
+	if (!_usedPaths.contains(path)) {
+		_usedPaths.insert(path);
+		return path;
+	}
+	const auto slash = path.lastIndexOf('/');
+	const auto dot = path.lastIndexOf('.');
+	auto stem = path;
+	auto ext = QString();
+	if (dot > slash) {
+		stem = path.left(dot);
+		ext = path.mid(dot);
+	}
+	auto candidate = stem + u"."_q + QString::number(messageId) + ext;
+	for (auto n = 2; _usedPaths.contains(candidate); ++n) {
+		candidate = stem + u"."_q + QString::number(messageId)
+			+ u"-"_q + QString::number(n) + ext;
+	}
+	addDebug(u"NAME COLLISION "_q + path.left(50)
+		+ u" -> "_q + candidate.left(60));
+	_usedPaths.insert(candidate);
+	return candidate;
 }
 
 QString FastControllerObject::fileName(const Export::Data::File &file) const {

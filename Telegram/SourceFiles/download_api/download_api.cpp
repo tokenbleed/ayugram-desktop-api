@@ -8,6 +8,7 @@ https://github.com/AyuGram/AyuGramDesktop/blob/master/LEGAL
 #include "download_api/download_api_pch.h"
 
 #include "download_api/download_api_json.h"
+#include "download_api/download_api_topics.h"
 
 #include "ui/style/style_core_direction.h"
 
@@ -347,6 +348,8 @@ void Manager::handleRequest(quint64 id, HttpRequest &&request) {
 			handleCreateJob(id, false, request.body);
 		} else if (request.path == u"/api/v1/list"_q) {
 			handleCreateJob(id, true, request.body);
+		} else if (request.path == u"/api/v1/topics"_q) {
+			handleTopics(id, request.body);
 		} else if (request.path.startsWith(u"/api/v1/jobs/"_q)) {
 			const auto parts = request.path.split('/');
 			if (parts.size() == 6 && parts[5] == u"cancel"_q) {
@@ -374,6 +377,7 @@ void Manager::handleRoot(quint64 id) {
 			Json::String(u"/api/v1/jobs/{id}"_q),
 			Json::String(u"/api/v1/download"_q),
 			Json::String(u"/api/v1/list"_q),
+			Json::String(u"/api/v1/topics"_q),
 			Json::String(u"/api/v1/jobs/{id}/cancel"_q),
 			Json::String(u"/api/v1/jobs/{id}/skip"_q),
 		}) },
@@ -437,6 +441,51 @@ void Manager::handleCreateJob(
 		{ u"job_id"_q, Json::Number(qint64(jobId)) },
 	}));
 	maybeStartNext();
+}
+
+void Manager::handleTopics(quint64 id, const QByteArray &body) {
+	const auto object = ParseJson(body);
+	if (!object.hasField(u"peer_id"_q)
+		|| object.field(u"peer_id"_q).numberValue() <= 0) {
+		respondJson(id, 400, Json::Object({
+			{ u"ok"_q, Json::Bool(false) },
+			{ u"error"_q, Json::String(u"Missing 'peer_id'"_q) },
+		}));
+		return;
+	}
+	if (!_session) {
+		respondJson(id, 409, Json::Object({
+			{ u"ok"_q, Json::Bool(false) },
+			{ u"error"_q, Json::String(u"No active session"_q) },
+		}));
+		return;
+	}
+	if (_topicsRequests.size() >= 4) {
+		respondJson(id, 429, Json::Object({
+			{ u"ok"_q, Json::Bool(false) },
+			{ u"error"_q, Json::String(u"Too many topic enumerations in flight"_q) },
+		}));
+		return;
+	}
+	const auto peerId = uint64(
+		object.field(u"peer_id"_q).numberValue());
+	const auto topics = new TopicsRequest(
+		&_session->mtp(),
+		peerId,
+		[=](int status, JsonValue &&json) {
+			respondJson(id, status, std::move(json));
+		});
+	topics->setParent(this);
+	_topicsRequests.push_back(topics);
+	connect(topics, &QObject::destroyed, this, [=, pointer = topics] {
+		_topicsRequests.erase(
+			std::remove(
+				_topicsRequests.begin(),
+				_topicsRequests.end(),
+				pointer),
+			_topicsRequests.end());
+	});
+	topics->start();
 }
 
 void Manager::handleJobsList(quint64 id) {
