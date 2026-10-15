@@ -116,6 +116,8 @@ void FastControllerObject::emitState() {
 	state.bytesTotalAll = _state.bytesTotalAll;
 	state.filesFinished = _state.filesFinished;
 	state.filesTotal = _state.filesTotal;
+	state.messages = _state.messages;
+	state.texts = _state.texts;
 	const auto now = QDateTime::currentMSecsSinceEpoch();
 	if (_lastAt > 0) {
 		const auto dtMs = std::max<qint64>(1, now - _lastAt);
@@ -274,7 +276,15 @@ void FastControllerObject::dialogsPageDone(
 
 void FastControllerObject::startMessages() {
 	_nextOffsetId = 0;
-	requestHistoryPage();
+	// A document walk and a queried walk both belong on messages.search, which
+	// pages only the matching messages. messages.getHistory would page every
+	// message in the channel, which for a files channel is mostly attachments
+	// and so does the same work in far more requests.
+	if (_options.documentsOnly || !_options.query.isEmpty()) {
+		requestChannelSearchPage(0);
+	} else {
+		requestHistoryPage();
+	}
 }
 
 void FastControllerObject::requestHistoryPage() {
@@ -421,7 +431,7 @@ void FastControllerObject::requestSearchPage(int offsetId) {
 	_mtp.request(MTPmessages_Search(
 		MTP_flags(Flag::f_top_msg_id),
 		_peer,
-		MTP_string(QString()),
+		MTP_string(_options.query),
 		MTP_inputPeerEmpty(),
 		MTP_inputPeerEmpty(),
 		MTP_vector<MTPReaction>(),
@@ -443,6 +453,50 @@ void FastControllerObject::requestSearchPage(int offsetId) {
 	}).fail([=](const MTP::Error &error) {
 		fail(error.type());
 	}).send();
+}
+
+void FastControllerObject::requestChannelSearchPage(int offsetId) {
+	_mtp.request(MTPmessages_Search(
+		MTP_flags(0), // no topic: the whole peer
+		_peer,
+		MTP_string(_options.query),
+		MTP_inputPeerEmpty(),
+		MTP_inputPeerEmpty(),
+		MTP_vector<MTPReaction>(),
+		MTP_int(0), // no top_msg_id
+		_options.documentsOnly
+			? MTPMessagesFilter(MTP_inputMessagesFilterDocument())
+			: MTPMessagesFilter(MTP_inputMessagesFilterEmpty()),
+		MTP_int(0), // min_date
+		MTP_int(0), // max_date
+		MTP_int(offsetId),
+		MTP_int(0), // add_offset
+		MTP_int(kMessagesLimit),
+		MTP_int(0), // max_id
+		MTP_int(0), // min_id
+		MTP_long(0) // hash
+	)).done([=](const MTPmessages_Messages &result) {
+		if (stopped()) {
+			return;
+		}
+		channelSearchPageDone(result);
+	}).fail([=](const MTP::Error &error) {
+		fail(error.type());
+	}).send();
+}
+
+void FastControllerObject::channelSearchPageDone(
+		const MTPmessages_Messages &result) {
+	handleMessagesPage(result);
+	if (stopped()) {
+		return;
+	}
+	if (_nextOffsetId > 0) {
+		requestChannelSearchPage(_nextOffsetId);
+	} else {
+		_walkDone = true;
+		pumpFiles();
+	}
 }
 
 void FastControllerObject::searchPageDone(
@@ -476,6 +530,57 @@ void FastControllerObject::handleMessagesPage(
 			_relativePath);
 	});
 	Q_UNUSED(addDebug(u"msgs="_q + QString::number(int(slice.list.size()))));
+	if (_options.mode == JobOptions::Mode::List) {
+		// Every message's text, whether or not it carries a file. A post that
+		// only pastes a Mega or Gofile link has no attachment, so a walk that
+		// records files alone cannot see it, and the link harvest needs it.
+		auto textsAdded = 0;
+		for (const auto &m : slice.list) {
+			if (_state.texts.size() >= 200000) {
+				break;
+			}
+			if (!_textIds.insert(m.id).second) {
+				continue;
+			}
+			auto text = QString();
+			for (const auto &part : m.text) {
+				// A text-url keeps its target in `additional`; `text` is the
+				// visible label. The target is what the harvest wants.
+				const auto &value =
+					(part.type == Export::Data::TextPart::Type::TextUrl
+						&& !part.additional.isEmpty())
+					? part.additional
+					: part.text;
+				if (value.isEmpty()) {
+					continue;
+				}
+				if (!text.isEmpty()) {
+					text += QChar(' ');
+				}
+				text += QString::fromUtf8(value);
+			}
+			if (text.isEmpty()) {
+				continue;
+			}
+			auto entry = MessageText();
+			entry.id = m.id;
+			entry.date = m.date;
+			entry.text = text;
+			_state.texts.push_back(std::move(entry));
+			++textsAdded;
+		}
+		if (textsAdded > 0) {
+			addDebug(u"texts+"_q + QString::number(textsAdded)
+				+ u"="_q + QString::number(int(_state.texts.size())));
+		} else if (!slice.list.empty()) {
+			auto parts = 0;
+			for (const auto &m : slice.list) {
+				parts += int(m.text.size());
+			}
+			addDebug(u"notext n="_q + QString::number(int(slice.list.size()))
+				+ u" parts="_q + QString::number(parts));
+		}
+	}
 	if (_options.messageId || _options.topicRootId) {
 		result.match([](const MTPDmessages_messagesNotModified &) {
 		}, [&](const auto &data) {
@@ -952,6 +1057,7 @@ void FastControllerObject::finishIfDone() {
 	state.startedAt = _startedAt;
 	state.debug = _state.debug;
 	state.messages = _state.messages;
+	state.texts = _state.texts;
 	state.mainFile = _options.dest;
 	state.filesCount = _state.filesFinished;
 	state.bytesCount = _state.bytesLoadedTotal;

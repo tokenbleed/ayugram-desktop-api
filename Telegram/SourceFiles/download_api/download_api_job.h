@@ -59,6 +59,9 @@ struct JobOptions {
 	// the enumeration into messages.search, which pages the files themselves
 	// instead of every reply in the topic.
 	bool documentsOnly = false;
+	// A search string. messages.search only returns messages that match, so this
+	// is how the link harvest finds posts that carry a link and nothing else.
+	QString query;
 	int chatLimit = 0;
 	int parallel = 3;
 	Export::MediaSettings::Types mediaTypes = Export::MediaSettings::Type::AllMask;
@@ -79,6 +82,15 @@ struct ListedMessage {
 	TimeId date = 0;
 	QString name;
 	int64 size = 0;
+};
+
+// MessageText is every message's text, files or not. Link posts carry no
+// attachment, so a walk that only records files cannot see them; this is what
+// the link harvest reads.
+struct MessageText {
+	int32 id = 0;
+	TimeId date = 0;
+	QString text;
 };
 
 struct JobState {
@@ -114,6 +126,7 @@ struct JobState {
 	uint64 bytesRandomId = 0;
 	std::vector<ListedChat> chats;
 	std::vector<ListedMessage> messages;
+	std::vector<MessageText> texts;
 	QStringList candidates;
 	QString notice;
 };

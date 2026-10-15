@@ -161,6 +161,9 @@ bool ParseOptions(
 	if (object.hasField(u"documents"_q)) {
 		options.documentsOnly = object.field(u"documents"_q).boolValue();
 	}
+	if (object.hasField(u"query"_q)) {
+		options.query = object.field(u"query"_q).stringValue();
+	}
 	if ((options.topicRootId || options.messageId) && !options.peerId) {
 		error = u"'topic_root_id'/'message_id' requires 'peer_id'"_q;
 		return false;
@@ -241,6 +244,7 @@ JsonValue JobOptionsJson(const JobOptions &options) {
 		{ u"topic_root_id"_q, Json::Number(qint64(options.topicRootId)) },
 		{ u"message_id"_q, Json::Number(qint64(options.messageId)) },
 		{ u"documents"_q, Json::Bool(options.documentsOnly) },
+		{ u"query"_q, Json::String(options.query) },
 		{ u"limit"_q, Json::Number(qint64(options.chatLimit)) },
 		{ u"parallel"_q, Json::Number(qint64(options.parallel)) },
 		{ u"size_limit"_q, Json::Number(options.sizeLimit) },
@@ -724,6 +728,18 @@ JsonValue Manager::writeJobJson(const Job &job) const {
 			}));
 		}
 		fields.push_back({ u"messages"_q, Json::Array(std::move(messages)) });
+	}
+	if (!job.state.texts.empty()) {
+		auto texts = std::vector<JsonValue>();
+		texts.reserve(job.state.texts.size());
+		for (const auto &entry : job.state.texts) {
+			texts.push_back(Json::Object({
+				{ u"id"_q, Json::Number(qint64(entry.id)) },
+				{ u"date"_q, Json::Number(qint64(entry.date)) },
+				{ u"text"_q, Json::String(entry.text) },
+			}));
+		}
+		fields.push_back({ u"texts"_q, Json::Array(std::move(texts)) });
 	}
 	if (!job.state.chats.empty()) {
 		auto chats = std::vector<JsonValue>();

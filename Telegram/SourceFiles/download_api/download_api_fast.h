@@ -88,6 +88,8 @@ private:
 	void repliesPageDone(const MTPmessages_Messages &result);
 	void requestSearchPage(int offsetId);
 	void searchPageDone(const MTPmessages_Messages &result);
+	void requestChannelSearchPage(int offsetId);
+	void channelSearchPageDone(const MTPmessages_Messages &result);
 	void handleMessagesPage(const MTPmessages_Messages &result);
 	void collectFiles(Export::Data::MessagesSlice &&slice);
 	void pumpFiles();
@@ -125,6 +127,7 @@ private:
 	std::map<int, ActiveFile> _activeFiles;
 	std::vector<InFlight> _inFlight;
 	base::flat_set<int32> _listedIds;
+	base::flat_set<int32> _textIds;
 	int _nextToken = 1;
 
 	static constexpr auto kPartsPerFile = 5;
