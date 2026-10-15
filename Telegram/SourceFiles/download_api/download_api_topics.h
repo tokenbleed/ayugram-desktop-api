@@ -75,6 +75,8 @@ private:
 	int32 _offsetId = 0;
 	int32 _offsetTopic = 0;
 	int _pages = 0;
+	int _passes = 0;
+	int _passFresh = 0;
 	int _dialogsPages = 0;
 	bool _finished = false;
 

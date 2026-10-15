@@ -23,6 +23,10 @@ using Json = JsonValue;
 
 constexpr auto kTopicsLimit = 100;
 constexpr auto kMaxTopicsPages = 200;
+// How many times a walk may restart from the top looking for topics the
+// activity ordering hid. Each extra pass is two requests on this forum, and
+// the loop stops early the moment a pass adds nothing.
+constexpr auto kMaxTopicPasses = 4;
 constexpr auto kDialogsLimit = 100;
 constexpr auto kMaxDialogsPages = 10;
 
@@ -130,6 +134,9 @@ void TopicsRequest::topicsPageDone(
 	auto fresh = 0;
 	const auto &data = result.data();
 	_total = data.vcount().v;
+	const auto beforeDate = _offsetDate;
+	const auto beforeId = _offsetId;
+	const auto beforeTopic = _offsetTopic;
 	for (const auto &topic : data.vtopics().v) {
 		// A deleted topic is a tombstone (it carries only the id); it still
 		// counts toward the server total, so record it as hidden rather than
@@ -162,14 +169,38 @@ void TopicsRequest::topicsPageDone(
 		fail(u"No topics returned"_q);
 		return;
 	}
-	const auto done = (fresh == 0)
-		|| (int32(_topics.size()) >= _total && _total > 0)
-		|| (_pages >= kMaxTopicsPages);
-	if (done) {
-		finish();
-	} else {
+	// The server orders forum topics by activity, so a topic can move from ahead
+	// of the cursor to behind it between two pages and never be returned on that
+	// page walk. That is how the pvt forum answered 105 of its 107 topics. A pass
+	// keeps its own tally and a finished pass that is short of the server's count
+	// starts another pass from the top. The pass ends on the server's end of list
+	// (an empty page) or on a cursor that did not move, NOT on "this page added
+	// nothing": a second pass necessarily opens with topics the first pass already
+	// found, so a page with no fresh entries is normal mid-pass.
+	_passFresh += fresh;
+	const auto pageEmpty = data.vtopics().v.empty();
+	const auto cursorStuck = (_offsetDate == beforeDate
+		&& _offsetId == beforeId
+		&& _offsetTopic == beforeTopic);
+	if (!pageEmpty && !cursorStuck
+		&& _pages < kMaxTopicsPages
+		&& (_total <= 0 || int32(_topics.size()) < _total)) {
 		requestTopicsPage();
+		return;
 	}
+	if (_passFresh > 0
+		&& _total > 0
+		&& int32(_topics.size()) < _total
+		&& _passes < kMaxTopicPasses) {
+		++_passes;
+		_passFresh = 0;
+		_offsetDate = 0;
+		_offsetId = 0;
+		_offsetTopic = 0;
+		requestTopicsPage();
+		return;
+	}
+	finish();
 }
 
 void TopicsRequest::finish() {
@@ -194,6 +225,10 @@ void TopicsRequest::finish() {
 		{ u"chat_name"_q, Json::String(_chatName) },
 		{ u"count"_q, Json::Number(qint64(_topics.size())) },
 		{ u"server_count"_q, Json::Number(qint64(_total)) },
+		// Bounded catches completeness: how many requests and how many full
+		// passes the server needed before a pass added nothing.
+		{ u"pages"_q, Json::Number(qint64(_pages)) },
+		{ u"passes"_q, Json::Number(qint64(_passes + 1)) },
 		{ u"topics"_q, Json::Array(std::move(topics)) },
 	}));
 }
