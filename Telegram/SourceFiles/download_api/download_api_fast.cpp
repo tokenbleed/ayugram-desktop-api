@@ -363,7 +363,11 @@ void FastControllerObject::startTopic() {
 		}
 		handleMessagesPage(result);
 		if (!stopped()) {
-			requestRepliesPage(0);
+			if (_options.documentsOnly) {
+				requestSearchPage(0);
+			} else {
+				requestRepliesPage(0);
+			}
 		}
 	}).fail([=](const MTP::Error &error) {
 		fail(error.type());
@@ -399,6 +403,56 @@ void FastControllerObject::repliesPageDone(
 	}
 	if (_nextOffsetId > 0) {
 		requestRepliesPage(_nextOffsetId);
+	} else {
+		_walkDone = true;
+		pumpFiles();
+	}
+}
+
+// requestSearchPage walks a topic with messages.search and the document filter.
+//
+// Paging every reply (messages.getReplies) costs one request per hundred
+// messages in the topic, and the messages that matter are a small fraction of
+// them. Measured on the pvt forum: a topic needed hundreds of pages to find a
+// few files. The same topic answers in a handful of search pages, because the
+// server returns only the messages that carry documents.
+void FastControllerObject::requestSearchPage(int offsetId) {
+	using Flag = MTPmessages_Search::Flag;
+	_mtp.request(MTPmessages_Search(
+		MTP_flags(Flag::f_top_msg_id),
+		_peer,
+		MTP_string(QString()),
+		MTP_inputPeerEmpty(),
+		MTP_inputPeerEmpty(),
+		MTP_vector<MTPReaction>(),
+		MTP_int(_options.topicRootId),
+		MTP_inputMessagesFilterDocument(),
+		MTP_int(0), // min_date
+		MTP_int(0), // max_date
+		MTP_int(offsetId),
+		MTP_int(0), // add_offset
+		MTP_int(kMessagesLimit),
+		MTP_int(0), // max_id
+		MTP_int(0), // min_id
+		MTP_long(0) // hash
+	)).done([=](const MTPmessages_Messages &result) {
+		if (stopped()) {
+			return;
+		}
+		searchPageDone(result);
+	}).fail([=](const MTP::Error &error) {
+		fail(error.type());
+	}).send();
+}
+
+void FastControllerObject::searchPageDone(
+		const MTPmessages_Messages &result) {
+	handleMessagesPage(result);
+	if (stopped()) {
+		return;
+	}
+	if (_nextOffsetId > 0) {
+		requestSearchPage(_nextOffsetId);
 	} else {
 		_walkDone = true;
 		pumpFiles();

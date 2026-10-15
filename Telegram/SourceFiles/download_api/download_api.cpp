@@ -158,6 +158,9 @@ bool ParseOptions(
 		options.messageId = int32(
 			object.field(u"message_id"_q).numberValue());
 	}
+	if (object.hasField(u"documents"_q)) {
+		options.documentsOnly = object.field(u"documents"_q).boolValue();
+	}
 	if ((options.topicRootId || options.messageId) && !options.peerId) {
 		error = u"'topic_root_id'/'message_id' requires 'peer_id'"_q;
 		return false;
@@ -237,6 +240,7 @@ JsonValue JobOptionsJson(const JobOptions &options) {
 		{ u"peer_id"_q, Json::Number(qint64(options.peerId)) },
 		{ u"topic_root_id"_q, Json::Number(qint64(options.topicRootId)) },
 		{ u"message_id"_q, Json::Number(qint64(options.messageId)) },
+		{ u"documents"_q, Json::Bool(options.documentsOnly) },
 		{ u"limit"_q, Json::Number(qint64(options.chatLimit)) },
 		{ u"parallel"_q, Json::Number(qint64(options.parallel)) },
 		{ u"size_limit"_q, Json::Number(options.sizeLimit) },

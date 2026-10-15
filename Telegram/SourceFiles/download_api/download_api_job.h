@@ -55,6 +55,10 @@ struct JobOptions {
 	uint64 peerId = 0;
 	int32 topicRootId = 0;
 	int32 messageId = 0;
+	// Walk only the messages that carry documents. With a topic root this turns
+	// the enumeration into messages.search, which pages the files themselves
+	// instead of every reply in the topic.
+	bool documentsOnly = false;
 	int chatLimit = 0;
 	int parallel = 3;
 	Export::MediaSettings::Types mediaTypes = Export::MediaSettings::Type::AllMask;

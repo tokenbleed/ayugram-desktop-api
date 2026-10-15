@@ -86,6 +86,8 @@ private:
 	void startMessage();
 	void requestRepliesPage(int offsetId);
 	void repliesPageDone(const MTPmessages_Messages &result);
+	void requestSearchPage(int offsetId);
+	void searchPageDone(const MTPmessages_Messages &result);
 	void handleMessagesPage(const MTPmessages_Messages &result);
 	void collectFiles(Export::Data::MessagesSlice &&slice);
 	void pumpFiles();
