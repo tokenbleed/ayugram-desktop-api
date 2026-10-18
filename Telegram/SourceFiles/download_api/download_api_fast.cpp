@@ -32,6 +32,20 @@ constexpr auto kMessagesLimit = 100;
 constexpr auto kDialogsLimit = 100;
 constexpr auto kMaxDialogsPages = 5;
 
+// messages.search takes min_date/max_date as exclusive bounds ("sending date
+// bigger/smaller than the transferred one"), while the bulk API's
+// since/until mean from <= date < till (SkipMessageByDate). Lower the min
+// bound by one second so the first message of a window still matches; the
+// upper bound is exclusive on both sides, so till passes through unchanged.
+// Zero leaves a bound unset, which keeps the whole-channel walk unfiltered.
+[[nodiscard]] MTPint SearchMinDate(TimeId from) {
+	return (from > 0) ? MTP_int(from - 1) : MTP_int(0);
+}
+
+[[nodiscard]] MTPint SearchMaxDate(TimeId till) {
+	return (till > 0) ? MTP_int(till) : MTP_int(0);
+}
+
 bool MatchDialogsPeer(
 		const Export::Data::DialogInfo &info,
 		uint64 wanted) {
@@ -437,8 +451,8 @@ void FastControllerObject::requestSearchPage(int offsetId) {
 		MTP_vector<MTPReaction>(),
 		MTP_int(_options.topicRootId),
 		MTP_inputMessagesFilterDocument(),
-		MTP_int(0), // min_date
-		MTP_int(0), // max_date
+		SearchMinDate(_options.from), // from-1: server min_date is exclusive
+		SearchMaxDate(_options.till), // till: exclusive upper on both sides
 		MTP_int(offsetId),
 		MTP_int(0), // add_offset
 		MTP_int(kMessagesLimit),
@@ -467,8 +481,8 @@ void FastControllerObject::requestChannelSearchPage(int offsetId) {
 		_options.documentsOnly
 			? MTPMessagesFilter(MTP_inputMessagesFilterDocument())
 			: MTPMessagesFilter(MTP_inputMessagesFilterEmpty()),
-		MTP_int(0), // min_date
-		MTP_int(0), // max_date
+		SearchMinDate(_options.from), // from-1: server min_date is exclusive
+		SearchMaxDate(_options.till), // till: exclusive upper on both sides
 		MTP_int(offsetId),
 		MTP_int(0), // add_offset
 		MTP_int(kMessagesLimit),
